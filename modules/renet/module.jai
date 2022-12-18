@@ -3,9 +3,7 @@
 
 // @TODO decide on u32 vs regular ints
 
-// @TODO this might not be good, the initial value is invalid if this module hasn't been initialized 
-HOST_ANY : in6_addr;
-Socket :: #type SOCKET;
+HOST_ANY :: V6_ANY_ADDR;
 
 Address :: struct {
   host : in6_addr;
@@ -13,23 +11,20 @@ Address :: struct {
   sin6_scope_id : u16;
 }
 
-Peer :: struct {
-
+Command_List :: struct ($T: Type) {
+  commands : [..] T;
+  last_index : u32;
 }
 
-Host :: struct {
-  peers : [] Peer;
-  socket : Socket;
-  address : Address;
-  received_address : Address;
-  random_seed : u32;
-  channel_limit : u32;
-  incoming_bandwidth : u32;
-  outgoing_bandwidth : u32;
-  mtu : u32;
-  duplicate_peers : u32;
-  maximum_packet_size : u32;
-  maximum_waiting_data : u32;
+Channel :: struct {
+  outgoing_reliable_seq_number : u16;
+  outgoing_unreliable_seq_number : u16;
+  used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
+  reliable_windows : [PEER_RELIABLE_WINDOWS] u16;
+  incoming_reliable_seq_number : u16;
+  incoming_unreliable_seq_number : u16;
+  incoming_reliable_commands : Command_List(Incoming_Command);
+  incoming_unreliable_commands : Command_List(Outgoing_Command);
 }
 
 Packet_Flags :: enum_flags u16 {
@@ -65,7 +60,7 @@ initialize :: () -> bool {
     }
   }
 
-  HOST_ANY = in6addr_any; 
+  start_time = current_time_monotonic();
 
   // No initialization needed for unix
 
@@ -80,69 +75,28 @@ deinitialize :: () {
   // No deinitialization needed for unix
 }
 
-host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming_bandwidth: u32, outgoing_bandwidth: u32) -> *Host, bool {
-  host : *Host;
-
-  if peer_count < 0 || peer_count > PROTOCOL_MAXIMUM_PEER_ID {
-    log_error("Invalid peer count 0 < % < %", peer_count, PROTOCOL_MAXIMUM_PEER_ID);
-    return host, false; 
-  }
-
-  // @TODO Not sure if we should actually heap allocate this? It is a big struct...
-  host = New(Host);
-
-  host.peers = NewArray(peer_count, Peer);
-  
-  host.socket = socket_create();
-
-  if host.socket != INVALID_SOCKET set_socket_options(host.socket, .IPV6_V6ONLY, 0);
-
-  if host.socket == INVALID_SOCKET || (address != null && socket_bind(host.socket, address) == false) {
-    log_error("Failed to create and bind socket\n");
-
-    socket_destroy(host.socket);
-    free(host.peers.data);
-    free(host);
-
-    return host, false;
-  }
-
-  set_socket_options(host.socket, .NONEBLOCK, 1);
-  set_socket_options(host.socket, .BROADCAST, 1);
-  set_socket_options(host.socket, .RECEIVE_BUFF, HOST_RECEIVE_BUFFER_SIZE);
-  set_socket_options(host.socket, .SEND_BUFF, HOST_SEND_BUFFER_SIZE);
-  set_socket_options(host.socket, .IPV6_V6ONLY, 0);
-
-  
-  if address != null && !get_socket_address(host.socket, *host.address) {
-    host.address = <<address;
-  }
-
-  if channel_limit == 0 || channel_limit > PROTOCOL_MAXIMUM_CHANNEL_COUNT {
-    channel_limit = PROTOCOL_MAXIMUM_CHANNEL_COUNT;
-  }
-
-  host.random_seed = (cast(u32)host) % U32_MAX;
-  host.random_seed += xx random_seed(); 
-  host.random_seed = (host.random_seed << 16) | (host.random_seed >> 16);
-  host.channel_limit = channel_limit;
-  host.incoming_bandwidth = incoming_bandwidth;
-  host.outgoing_bandwidth = outgoing_bandwidth;
-  host.mtu = HOST_DEFAULT_MTU;
-  host.received_address.host = HOST_ANY;
-  host.received_address.port = 0;
-  host.duplicate_peers = PROTOCOL_MAXIMUM_PEER_ID;
-  host.maximum_packet_size = HOST_DEFAULT_MAXIMUM_PACKET_SIZE;
-  host.maximum_waiting_data = HOST_DEFAULT_MAXIMUM_WAITING_DATA; // @TODO these could probably be set on the struct?
-
-  return host, true;
+create_packet :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
+  return create_packet(xx data, xx size_of(T), flags);
 }
 
-host_destroy :: (host: *Host) {
-  socket_destroy(host.socket);
-  free(host.peers.data);
-  free(host);
+create_packet :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
+  return create_packet(xx data.data, xx data.count, flags);
 }
+
+destroy_packet :: (packet: *Packet) {
+  free(packet);
+}
+
+get_host_ip_address :: (host: string) -> Address, bool {
+  address, success := lookup_host(host, true);
+  return address, success;
+}
+
+get_host_name_address :: (host: string) -> Address, bool {
+  address, success := lookup_host(host, false);
+  return address, success;
+}
+
 
 create_packet :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIABLE) -> *Packet {
   packet : *Packet;
@@ -163,109 +117,84 @@ create_packet :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIA
   return packet;
 }
 
-create_packet :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-  return create_packet(xx data, xx size_of(T), flags);
-}
+#load "host.jai";
+#load "peer.jai";
 
-create_packet :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-  return create_packet(xx data.data, xx data.count, flags);
-}
-
-destroy_packet :: (packet: *Packet) {
-  free(packet);
-}
-
-#scope_file
+#scope_module
 #import "Basic";
 #import "Socket";
-#import "Math"; // U32_MAX
+#load "protocol.jai";
+#load "socket.jai";
 
-#if OS == .WINDOWS {
-  Windows :: #import "Windows"; // timeGetTime
+start_time : Apollo_Time;
+
+V6_ANY_ADDR :: in6_addr.{.{.[ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]}};
+V6_NO_ADDR :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ]}};
+
+List_Node :: struct {
+  prev : *List_Node;
+  next : *List_Node;
 }
 
-PROTOCOL_MAXIMUM_PEER_ID       :: 0xFFF;
-PROTOCOL_MAXIMUM_CHANNEL_COUNT :: 255;
-
-HOST_RECEIVE_BUFFER_SIZE          :: 256 * 1024;
-HOST_SEND_BUFFER_SIZE             :: 256 * 1024;
-HOST_DEFAULT_MTU                  :: 1400;
-HOST_DEFAULT_MAXIMUM_PACKET_SIZE  :: 32 * 1024 * 1024;
-HOST_DEFAULT_MAXIMUM_WAITING_DATA :: 32 * 1024 * 1024;
-
-Socket_Options :: enum {
-  NONEBLOCK;
-  BROADCAST;
-  RECEIVE_BUFF;
-  SEND_BUFF;
-  IPV6_V6ONLY;
+List :: struct {
+  sentinel : List_Node;
 }
 
-socket_create :: () -> Socket {
-  return socket(PF_INET6, .DGRAM, 0);
+list_end :: (list: *List) -> *List_Node #expand {
+  return *list.sentinel;
 }
 
-socket_destroy :: (socket: Socket) {
-  #if OS == .WINDOWS {
-    closesocket(socket);
-  } else {
-    close(socket);
-  }
+list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
+  data.prev = position.prev;
+  data.next = position;
+
+  data.prev.next = data;
+  position.prev = data;
+
+  return <<data;
 }
 
-set_socket_options :: (socket: Socket, options: Socket_Options, value: s32) -> bool {
-  result : int;
-
-  if options == {
-    case .NONEBLOCK;
-      #if OS == .WINDOWS {
-        result = ioctlsocket(socket, FIONBIO, cast(*u32)*value);
-      } else {
-        other := fcntl(socket, F_GETFL) & ~O_NONBLOCK;
-        result = fcntl(socket, F_SETFL, ifx value then O_NONBLOCK else 0 | other);
-      }
-    case .BROADCAST;
-      result = setsockopt(socket, SOL_SOCKET, SO_BROADCAST, cast(*u8)*value, size_of(s32));
-    case .RECEIVE_BUFF;
-      result = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, cast(*u8)*value, size_of(s32));
-    case .SEND_BUFF;
-      result = setsockopt(socket, SOL_SOCKET, SO_SNDBUF, cast(*u8)*value, size_of(s32));
-    case .IPV6_V6ONLY;
-      result = setsockopt(socket, xx IPPROTO.IPV6, IPV6_V6ONLY, cast(*u8)*value, size_of(s32));
-  }
-
-  if result == -1 return false;
-
-  return true;
+list_clear :: (list: *List) {
+  list.sentinel.next = *list.sentinel;
+  list.sentinel.prev = *list.sentinel;
 }
 
-socket_bind :: (socket: Socket, address: *Address) -> bool {
-  sin : sockaddr_in6;
-
-  if address {
-    sin.sin6_port = htons(address.port);
-    sin.sin6_addr = address.host;
-    sin.sin6_scope_id = address.sin6_scope_id;
-  } else {
-    sin.sin6_port = 0;
-    sin.sin6_addr = HOST_ANY;
-    sin.sin6_scope_id = 0;
-  }
-  
-  return ifx bind(socket, cast(*sockaddr)*sin, size_of(sockaddr_in6)) then true else false;
+Command :: struct {
+  #as using list : List_Node;
+  packet : *Packet;
 }
 
-get_socket_address :: (socket: Socket, address: *Address) -> bool {
-  sin : sockaddr_in6;
-  sin_len :s32= xx size_of(sockaddr_in6);
+Incoming_Command :: struct {
+  #as using base : Command;
+}
 
-  if getsockname(socket, cast(*sockaddr)*sin, *sin_len) == -1 return false;
+Outgoing_Command :: struct {
+  #as using base : Command;
+  reliable_seq_number : u16;
+  unreliable_seq_number : u16;
+  send_time : u32;
+  round_trip_timeout : u32;
+  round_trip_timeout_limit : u32;
+  fragment_offset : u32;
+  fragment_length : u16;
+  send_attempts : u16;
+  command : Protocol;
+}
 
-  address.host = sin.sin6_addr;
-  address.port = htons(sin.sin6_port);
-  address.sin6_scope_id = xx sin.sin6_scope_id;
+Event_Type :: enum {
+  NONE;
+  CONNECT;
+  DISCONNECT;
+  RECEIVE;
+  DISCONNECT_TIMEOUT;
+}
 
-  return true;
+Event :: struct {
+  type : Event_Type;
+  peer : *Peer;
+  channel_id : u8;
+  data : u32;
+  packet : *Packet;
 }
 
 random_seed :: () -> u64 {
@@ -275,3 +204,89 @@ random_seed :: () -> u64 {
     return cast(u64)time(null);
   }
 }
+
+lookup_host :: (name: string, no_dns: bool) -> Address, bool {
+  hints : addrinfo;
+  result_list : *addrinfo;
+  result : *addrinfo;
+  result_address : Address;
+
+  hints.ai_family = AF_UNSPEC;
+
+  if no_dns hints.ai_flags = .NUMERICHOST;
+
+  hostname := temp_c_string(name);
+  if getaddrinfo(hostname, null, *hints, *result_list) != 0 {
+    freeaddrinfo(result_list);
+    return result_address, false;
+  }
+
+  defer freeaddrinfo(result_list);
+
+  result = result_list;
+  while result != null {
+    defer result += 1;
+
+    if result.ai_addr != null {
+      if result.ai_family == AF_INET || (result.ai_family == AF_UNSPEC && result.ai_addrlen == size_of(sockaddr_in)) {
+        sock_addr : *sockaddr_in = cast(*sockaddr_in)result.ai_addr;
+        result_address.host = map_ip4_to_ip6(sock_addr.sin_addr);
+        result_address.sin6_scope_id = 0;
+        return result_address, true;
+      } else if result.ai_family == AF_INET6 || (result.ai_family == AF_UNSPEC && result.ai_addrlen == size_of(sockaddr_in6)) {
+        sock_addr : sockaddr_in6 = cast(*sockaddr_in6)result.ai_addr;
+        result_address.host = sock_addr.sin6_addr;
+        result_address.sin6_scope_id = xx sock_addr.sin6_scope_id;
+        return result_address, true;
+      }
+    }
+  }
+
+  return result_address, false;
+}
+
+map_ip4_to_ip6 :: (addr: in_addr) -> in6_addr {
+
+  if addr.S_un.S_addr == 0x00000000 {
+    return xx V6_ANY_ADDR;
+  } else if addr.S_un.S_addr == 0xFFFFFFFF {
+    return xx V6_NO_ADDR; 
+  }
+
+  result : in6_addr;
+  result.u.Byte[10] = 0xFF;
+  result.u.Byte[11] = 0xFF;
+  result.u.Byte[12] = (cast(*u8)*addr.S_un.S_addr)[0];
+  result.u.Byte[13] = (cast(*u8)*addr.S_un.S_addr)[1];
+  result.u.Byte[14] = (cast(*u8)*addr.S_un.S_addr)[2];
+  result.u.Byte[15] = (cast(*u8)*addr.S_un.S_addr)[3];
+
+  return result;
+}
+
+map_ip4_to_ip6 :: (addr: in6_addr) -> in_addr {
+  result : in_addr;
+  result.S_addr[0] = (cast(*u8)*addr.S_addr)[0];
+  result.S_addr[1] = (cast(*u8)*addr.S_addr)[1];
+  result.S_addr[2] = (cast(*u8)*addr.S_addr)[2];
+  result.S_addr[3] = (cast(*u8)*addr.S_addr)[3];
+
+  return result;
+}
+
+host_to_net_endian :: (value: u16 ) -> u16 #expand {
+  return htons(value);
+}
+
+host_to_net_endian :: (value: u32) -> u32 #expand {
+  return htonl(value);
+}
+
+#scope_file
+#import "Math"; // U32_MAX
+
+#if OS == .WINDOWS {
+  Windows :: #import "Windows"; // timeGetTime
+}
+
+

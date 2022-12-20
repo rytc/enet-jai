@@ -19,12 +19,16 @@ main :: () {
 
   peer := renet.host_connect(client, *address, 2, 0); 
 
-  event : renet.Event;
-  while renet.host_service(client, *event, 5000) > 0 {
-    if event.type == {
-      case;
-        print("Received event %\n", event.type);
+  while true {
+    event : renet.Event;
+    while renet.host_service(client, *event, 5000) > 0 {
+      if event.type == {
+        case;
+          print("Received event %\n", event.type);
+      }
     }
+
+    sleep_milliseconds(1600);
   }
 
   renet.host_destroy(client);

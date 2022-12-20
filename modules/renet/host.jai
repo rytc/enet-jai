@@ -17,6 +17,20 @@ Host :: struct {
   service_time : Apollo_Time;
   bandwidth_throttle_epoch : s64;
   recalculate_bandwidth_limits : bool;
+  continue_sending : bool;
+  header_flags: u32;
+  command_count: u32;
+  buffers : [MAX_BUFFER_COUNT]Buffer;
+  buffer_count : u32;
+  total_sent_packets : u32;
+  total_sent_data : u64;
+  packet_data : [2 * PROTOCOL_MAX_MTU]u8; // 2D array in c, need to manually offset by PROTOCOL_MAX_MTU
+  packet_size : u32;
+  total_received_packets  : u32;
+  received_data : *u8;
+  received_data_length : u32;
+  total_received_data_length : u32;
+  dispatch_queue : List;
 }
 
 host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming_bandwidth: u32, outgoing_bandwidth: u32) -> *Host, bool {
@@ -36,8 +50,8 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
 
   if host.socket != INVALID_SOCKET set_socket_options(host.socket, .IPV6_V6ONLY, 0);
 
-  if host.socket == INVALID_SOCKET || (address != null && socket_bind(host.socket, address) == false) {
-    log_error("Failed to create and bind socket\n");
+  if host.socket == INVALID_SOCKET || (socket_bind(host.socket, address) < 0 && address != null) {
+    log_error("Failed to create and bind socket: %\n", WSAGetLastError());
 
     socket_destroy(host.socket);
     free(host.peers.data);
@@ -52,7 +66,6 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
   set_socket_options(host.socket, .SEND_BUFF, HOST_SEND_BUFFER_SIZE);
   set_socket_options(host.socket, .IPV6_V6ONLY, 0);
 
-  
   if address != null && !get_socket_address(host.socket, *host.address) {
     host.address = <<address;
   }
@@ -73,6 +86,8 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
   host.duplicate_peers = PROTOCOL_MAX_PEER_ID;
   host.maximum_packet_size = HOST_DEFAULT_MAX_PACKET_SIZE;
   host.maximum_waiting_data = HOST_DEFAULT_MAX_WAITING_DATA; // @TODO these could probably be set on the struct?
+
+  list_clear(*host.dispatch_queue);
 
   for * peer : host.peers {
     peer.host = host;
@@ -97,8 +112,6 @@ host_destroy :: (host: *Host) {
 host_connect :: (host: *Host, address: Address, channel_count: u32, data: u32) -> *Peer {
   current_peer : *Peer;
 
-  // Find a disconnected per
-  // @TODO :Perf
   for * host.peers {
     if it.state == .DISCONNECTED {
       current_peer = it;
@@ -246,6 +259,20 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
 
   return 0;
 
+}
+
+host_send_raw :: (host: *Host, address: *Address, data: []u8) {
+  buffer : [1]Buffer;
+  buffer[0].data = data.data;
+  buffer[0].length = data.count;
+  socket_send(host.socket, address, buffer);
+}
+
+host_send_raw :: (host: *Host, address: *Address, data: *$T) {
+  buffer : [1]Buffer;
+  buffer[0].data = data;
+  buffer[0].length = size_of(t);
+  socket_send(host.socket, address, buffer);
 }
 
 #scope_module

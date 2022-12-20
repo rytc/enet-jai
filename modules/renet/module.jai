@@ -1,7 +1,6 @@
 
-// @TODO is this just going to be a native port or a reimagining/reimplementation?
-
-// @TODO decide on u32 vs regular ints
+// @TODO make sure time functionality is ok...
+// Not sure if I should store apollo time or just to_milliseconds(current_time_monotonic())
 
 HOST_ANY :: V6_ANY_ADDR;
 
@@ -131,6 +130,13 @@ start_time : Apollo_Time;
 V6_ANY_ADDR :: in6_addr.{.{.[ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]}};
 V6_NO_ADDR :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ]}};
 
+#if OS == .WINDOWS {
+  MAX_BUFFER_COUNT :s32: cast(s32)MSG.MSG_MAXIOVLEN;
+} else {
+  MAX_BUFFER_COUNT :: 1 + 2 * PROTOCOL_MAX_PACKET_COMMANDS; 
+}
+
+
 List_Node :: struct {
   prev : *List_Node;
   next : *List_Node;
@@ -138,6 +144,10 @@ List_Node :: struct {
 
 List :: struct {
   sentinel : List_Node;
+}
+
+list_begin :: (list: *List) -> *List_Node #expand {
+  return list.sentinel.next;
 }
 
 list_end :: (list: *List) -> *List_Node #expand {
@@ -154,9 +164,26 @@ list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
   return <<data;
 }
 
+list_remove :: (node: *List_Node) -> *void {
+  node.prev.next = node.next;
+  node.next.prev = node.prev;
+
+  return node;
+}
+
 list_clear :: (list: *List) {
   list.sentinel.next = *list.sentinel;
   list.sentinel.prev = *list.sentinel;
+}
+
+// @TODO this doesn't need to be a pointer...
+list_empty :: (list: *List) -> bool {
+  return list_begin(list) == list_end(list);
+}
+
+Buffer :: struct {
+  length : s64;
+  data : *void;
 }
 
 Command :: struct {
@@ -280,6 +307,10 @@ host_to_net_endian :: (value: u16 ) -> u16 #expand {
 
 host_to_net_endian :: (value: u32) -> u32 #expand {
   return htonl(value);
+}
+
+net_to_host_endian :: (value: u16) -> u16 #expand {
+  return ntohs(value);
 }
 
 #scope_file

@@ -12,6 +12,7 @@ Peer_State :: enum {
 }
 
 Peer :: struct {
+  dispatch_list : List_Node;
   state : Peer_State;
   channels : [] Channel;
   address : Address;
@@ -20,6 +21,7 @@ Peer :: struct {
   mtu : u32;
   host : Host;
   window_size : u32;
+  outgoing_peer_id : u16;
   incoming_peer_id : u16;
   outgoing_session_id : u8; 
   incoming_session_id : u8;
@@ -27,8 +29,8 @@ Peer :: struct {
   incoming_data_total : u32;
   outgoing_bandwidth : u32;
   incoming_bandwidth : u32;
-  outgoing_bandwidth_throttle_epoch : s64;
-  incoming_bandwidth_throttle_epoch : s64;
+  outgoing_bandwidth_throttle_epoch : s64; // :Time
+  incoming_bandwidth_throttle_epoch : s64; // :Time
   packet_throttle : u32;
   packet_throttle_limit : u32;
   packet_throttle_interval : u32;
@@ -38,6 +40,22 @@ Peer :: struct {
   outgoing_unsequenced_group : u16;
   outgoing_reliable_commands : List;
   outgoing_unreliable_commands : List;
+  acknowledgements : List;
+  send_reliable_commands : List;
+  sent_reliable_commands : List;
+  next_timeout : s64; // :Time
+  last_received_time : s64; // :Time
+  last_sent_time : s64; // :Time
+  ping_interval : s64; // :Time
+  packet_loss_epoch : s64; // :Time
+  packets_sent : u32;
+  packets_lost : u32;
+  packet_loss : u32;
+  packet_loss_variance : u32;
+  total_data_sent : u64;
+  needs_dispatch : bool;
+  dispatched_commands : List;
+  event_data : u32;
 }
 
 #scope_module
@@ -45,6 +63,8 @@ Peer :: struct {
 PEER_WINDOW_SIZE_SCALE      :: 64 * 1024;
 PEER_RELIABLE_WINDOWS       :u16: 16;
 PEER_PACKET_THROTTLE_SCALE  :: 32;
+PEER_PACKET_LOSS_INTERVAL   :: 10000;
+PEER_PACKET_LOSS_SCALE      :: (1 << 16);
 
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
   outgoing_cmd := New(Outgoing_Command);
@@ -106,5 +126,34 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
   } else {
     list_insert(list_end(*peer.outgoing_unreliable_commands), outgoing_cmd);
   }
+}
+
+peer_ping :: (peer: *Peer) {
+  log_error("TODO peer_ping not implemented\n");
+}
+
+peer_on_connect :: (peer: *Peer) {
+  if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
+    if peer.incoming_bandwidth != 0 {
+      peer.host.bandwidth_limited_peers += 1;
+    }
+
+    peer.host.connected_peers += 1;
+  }
+}
+
+peer_on_disconnect :: (peer: *Peer) {
+  if peer.state == .CONNECTED && peer.state == .DISCONNECT_LATER {
+    if peer.incoming_bandwidth != 0 {
+      peer.host.bandwidth_limited_peers -= 1;
+    }
+
+    peer.host.connected_peers -= 1;
+  }
+
+}
+
+peer_receive :: (peer: *Peer, channel_id: u16) -> *Packet {
+  log_error("TODO: peer_receive not implemented\n");
 }
 

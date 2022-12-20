@@ -18,6 +18,18 @@ main :: () {
 
   if !success print("Failed to create server\n");
 
+  while true {
+    event : renet.Event;
+    while renet.host_service(host, *event, 5000) > 0 {
+      if event.type == {
+        case;
+          print("Received event %\n", event.type);
+      }
+    }
+
+    sleep_milliseconds(16);
+  }
+
   renet.host_destroy(host);
 }
 

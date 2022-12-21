@@ -21,6 +21,8 @@ main :: () {
 
   while true {
     event : renet.Event;
+
+    print("client servicing...\n");
     while renet.host_service(client, *event, 5000) > 0 {
       if event.type == {
         case;

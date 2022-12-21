@@ -234,7 +234,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
         case WSAECONNRESET; return 0;
       }
 
-      log_error("recvfrom %\n", WSAGetLastError());
+      log_error("error on recvfrom %\n", WSAGetLastError());
 
       return -1;
     }

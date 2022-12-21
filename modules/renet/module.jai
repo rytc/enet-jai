@@ -10,11 +10,6 @@ Address :: struct {
   sin6_scope_id : u16;
 }
 
-Command_List :: struct ($T: Type) {
-  commands : [..] T;
-  last_index : u32;
-}
-
 Channel :: struct {
   outgoing_reliable_seq_number : u16;
   outgoing_unreliable_seq_number : u16;
@@ -22,8 +17,8 @@ Channel :: struct {
   reliable_windows : [PEER_RELIABLE_WINDOWS] u16;
   incoming_reliable_seq_number : u16;
   incoming_unreliable_seq_number : u16;
-  incoming_reliable_commands : Command_List(Incoming_Command);
-  incoming_unreliable_commands : Command_List(Outgoing_Command);
+  incoming_reliable_commands : List;
+  incoming_unreliable_commands : List;
 }
 
 Packet_Flags :: enum_flags u16 {
@@ -150,8 +145,20 @@ list_begin :: (list: *List) -> *List_Node #expand {
   return list.sentinel.next;
 }
 
+list_front :: (list: *List) -> *void #expand {
+  return list.sentinel.next;
+}
+
 list_end :: (list: *List) -> *List_Node #expand {
   return *list.sentinel;
+}
+
+list_next :: (list: *List_Node) -> *List_Node #expand {
+  return list.next;
+}
+
+list_next :: (list: *List) -> *List_Node #expand {
+  return list.sentinel.next;
 }
 
 list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
@@ -186,6 +193,12 @@ Buffer :: struct {
   data : *void;
 }
 
+Acknowledgement :: struct {
+  #as using list : List_Node;
+  sent_time: s64; // :Time
+  command : Protocol;
+}
+
 Command :: struct {
   #as using list : List_Node;
   packet : *Packet;
@@ -199,13 +212,14 @@ Outgoing_Command :: struct {
   #as using base : Command;
   reliable_seq_number : u16;
   unreliable_seq_number : u16;
-  send_time : u32;
-  round_trip_timeout : u32;
-  round_trip_timeout_limit : u32;
+  sent_time : u32;
+  round_trip_timeout : s64;
+  round_trip_timeout_limit : s64;
   fragment_offset : u32;
   fragment_length : u16;
   send_attempts : u16;
   command : Protocol;
+  timeout_maximum : s64; // :Time
 }
 
 Event_Type :: enum {
@@ -311,6 +325,14 @@ host_to_net_endian :: (value: u32) -> u32 #expand {
 
 net_to_host_endian :: (value: u16) -> u16 #expand {
   return ntohs(value);
+}
+
+net_to_host_endian :: (value: u32) -> u32 #expand {
+  return ntohl(value);
+}
+
+in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
+  return memcmp(*a, *b, size_of(in6_addr)) == 0;
 }
 
 #scope_file

@@ -19,6 +19,7 @@ Host :: struct {
   recalculate_bandwidth_limits : bool;
   continue_sending : bool;
   header_flags: u32;
+  commands : [PROTOCOL_MAX_PACKET_COMMANDS]Protocol;
   command_count: u32;
   buffers : [MAX_BUFFER_COUNT]Buffer;
   buffer_count : u32;
@@ -98,6 +99,11 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
 
     list_clear(*peer.outgoing_reliable_commands);
     list_clear(*peer.outgoing_unreliable_commands);
+    list_clear(*peer.sent_reliable_commands);
+    list_clear(*peer.sent_unreliable_commands);
+    list_clear(*peer.acknowledgements);
+
+    peer_reset(peer);
   }
 
   return host, true;

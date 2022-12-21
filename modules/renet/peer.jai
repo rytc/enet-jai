@@ -43,6 +43,7 @@ Peer :: struct {
   acknowledgements : List;
   send_reliable_commands : List;
   sent_reliable_commands : List;
+  sent_unreliable_commands : List;
   next_timeout : s64; // :Time
   last_received_time : s64; // :Time
   last_sent_time : s64; // :Time
@@ -53,18 +54,30 @@ Peer :: struct {
   packet_loss : u32;
   packet_loss_variance : u32;
   total_data_sent : u64;
+  total_data_received : u64;
+  total_packets_lost : u32;
+  total_packets_sent : u32;
   needs_dispatch : bool;
   dispatched_commands : List;
   event_data : u32;
+  earliest_timeout : s64; // :Time
+  timeout_minimum : s64; // :Time
+  timeout_limit : s64; // :Time
+  round_trip_time : s64; // :Time
+  round_trip_timeout : s64; // :Time
+  round_trip_time_variance : s64; // :Time
+  reliable_data_in_transit : u32;
 }
 
 #scope_module
 
 PEER_WINDOW_SIZE_SCALE      :: 64 * 1024;
 PEER_RELIABLE_WINDOWS       :u16: 16;
+PEER_RELIABLE_WINDOW_SIZE   :: 0x1000;
 PEER_PACKET_THROTTLE_SCALE  :: 32;
 PEER_PACKET_LOSS_INTERVAL   :: 10000;
 PEER_PACKET_LOSS_SCALE      :: (1 << 16);
+PEER_FREE_RELIABLE_WINDOWS  :: 8;
 
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
   outgoing_cmd := New(Outgoing_Command);
@@ -108,7 +121,7 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
   }
 
   outgoing_cmd.send_attempts = 0;
-  outgoing_cmd.send_time = 0;
+  outgoing_cmd.sent_time = 0;
   outgoing_cmd.round_trip_timeout = 0;
   outgoing_cmd.round_trip_timeout_limit = 0;
   outgoing_cmd.command.header.reliable_seq_number = host_to_net_endian(outgoing_cmd.reliable_seq_number);
@@ -129,7 +142,14 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
 }
 
 peer_ping :: (peer: *Peer) {
-  log_error("TODO peer_ping not implemented\n");
+  command : Protocol;
+
+  if peer.state != .CONNECTED then return;
+
+  command.header.command = PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE;
+  command.header.channel_id = 0xFF;
+
+  peer_queue_outgoing_command(peer, *command, null, 0, 0);
 }
 
 peer_on_connect :: (peer: *Peer) {
@@ -157,3 +177,8 @@ peer_receive :: (peer: *Peer, channel_id: u16) -> *Packet {
   log_error("TODO: peer_receive not implemented\n");
 }
 
+peer_reset :: (peer: *Peer) {
+  peer_on_disconnect(peer);
+
+  peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
+}

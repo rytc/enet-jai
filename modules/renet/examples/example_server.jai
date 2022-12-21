@@ -20,6 +20,8 @@ main :: () {
 
   while true {
     event : renet.Event;
+
+    print("servicing...\n");
     while renet.host_service(host, *event, 5000) > 0 {
       if event.type == {
         case;
@@ -27,7 +29,7 @@ main :: () {
       }
     }
 
-    sleep_milliseconds(16);
+    sleep_milliseconds(1600);
   }
 
   renet.host_destroy(host);

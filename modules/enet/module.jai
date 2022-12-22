@@ -69,15 +69,15 @@ deinitialize :: () {
     // No deinitialization needed for unix
 }
 
-create_packet :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return create_packet(xx data, xx size_of(T), flags);
+packet_create :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
+    return packet_create(xx data, xx size_of(T), flags);
 }
 
-create_packet :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return create_packet(xx data.data, xx data.count, flags);
+packet_create :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
+    return packet_create(xx data.data, xx data.count, flags);
 }
 
-destroy_packet :: (packet: *Packet) {
+packet_destroy :: (packet: *Packet) {
     free(packet);
 }
 

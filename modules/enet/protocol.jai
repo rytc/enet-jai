@@ -592,7 +592,7 @@ protocol_remove_sent_unreliable_commands :: (peer: *Peer) -> int {
 
             if outgoing_cmd.packet.ref_count == 0 {
                 outgoing_cmd.packet.flags |= .SENT;
-                destroy_packet(outgoing_cmd.packet);
+                packet_destroy(outgoing_cmd.packet);
             }
         }
 
@@ -922,8 +922,71 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
     return 0;
 }
 
-protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) {
-    log_error("TODO: protocol_remove_sent_reliable_command is not implemented\n");
+protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) -> int {
+    current_cmd := list_begin(*peer.sent_reliable_commands);
+    outgoing_cmd : *Outgoing_Command;
+    was_sent := true;
+
+    while current_cmd != list_end(*peer.sent_reliable_commands) {
+        outgoing_cmd = cast(*Outgoing_Command)current_cmd;
+
+        if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+
+        current_cmd = list_next(current_cmd);
+    }
+
+    if current_cmd == list_end(*peer.sent_reliable_commands) {
+        current_cmd = list_begin(*peer.outgoing_reliable_commands);
+        while current_cmd != list_end(*peer.outgoing_reliable_commands) {
+            
+            outgoing_cmd = cast(*Outgoing_Command)current_cmd;
+
+            if outgoing_cmd.send_attempts < 1 then return PROTOCOL_COMMAND_NONE;
+
+            if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+
+            current_cmd = list_next(current_cmd);
+        }
+
+        if current_cmd == list_end(*peer.outgoing_reliable_commands) then return PROTOCOL_COMMAND_NONE;
+
+        was_sent = false;
+    }
+
+    if outgoing_cmd == null then return PROTOCOL_COMMAND_NONE;
+
+    if channel_id < peer.channels.count {
+        channel := *peer.channels[channel_id];
+        reliable_window := reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+        if channel.reliable_windows[reliable_window] > 0 {
+            channel.reliable_windows[reliable_window] -= 1;
+            if !channel.reliable_windows[reliable_window] then channel.used_reliable_windows &= ~(cast(u16)1 << reliable_window);
+        }
+    }
+
+    cmd_number := outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK;
+    list_remove(outgoing_cmd);
+
+    if outgoing_cmd.packet != null {
+        if was_sent then peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
+
+        outgoing_cmd.packet.ref_count -= 1;
+
+        if outgoing_cmd.packet.ref_count == 0 {
+            outgoing_cmd.packet.flags |= Packet_Flags.SENT;
+            packet_destroy(outgoing_cmd.packet);
+        }
+    }
+
+    free(outgoing_cmd);
+
+    if list_empty(*peer.sent_reliable_commands) return cmd_number;
+
+    outgoing_cmd = cast(*Outgoing_Command)list_front(*peer.sent_reliable_commands);
+
+    peer.next_timeout = outgoing_cmd.sent_time + outgoing_cmd.round_trip_timeout;
+
+    return cmd_number;
 }
 
 protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {

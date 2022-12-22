@@ -14,6 +14,7 @@ Host :: struct {
     duplicate_peers : u32;
     maximum_packet_size : u32;
     maximum_waiting_data : u32;
+    service_time_offset : Apollo_Time;
     service_time : Apollo_Time;
     bandwidth_throttle_epoch : s64;
     recalculate_bandwidth_limits : bool;
@@ -87,6 +88,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
     host.duplicate_peers = PROTOCOL_MAX_PEER_ID;
     host.maximum_packet_size = HOST_DEFAULT_MAX_PACKET_SIZE;
     host.maximum_waiting_data = HOST_DEFAULT_MAX_WAITING_DATA; // @TODO these could probably be set on the struct?
+    host.service_time_offset = current_time_monotonic();
 
     list_clear(*host.dispatch_queue);
 
@@ -200,7 +202,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
         }
     }
 
-    host.service_time = current_time_monotonic();
+    host.service_time = current_time_monotonic() - host.service_time_offset;
     service_time := to_milliseconds(host.service_time);
     timeout += service_time;
 
@@ -243,7 +245,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
         if service_time >= timeout then return 0; 
 
         while true {
-            host.service_time = current_time_monotonic();
+            host.service_time = current_time_monotonic() - host.service_time_offset;
             service_time = to_milliseconds(host.service_time);
             if service_time > timeout then return 0;
 

@@ -21,7 +21,6 @@ main :: () {
     while true {
         event : enet.Event;
 
-        print("servicing...\n");
         while enet.host_service(host, *event, 5000) > 0 {
             if event.type == {
                 case;
@@ -29,7 +28,7 @@ main :: () {
             }
         }
 
-        sleep_milliseconds(1600);
+        sleep_milliseconds(16);
     }
 
     enet.host_destroy(host);

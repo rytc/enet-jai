@@ -200,6 +200,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 }
             }
 
+
             if list_empty(*peer.sent_reliable_commands) && 
                 service_time - peer.last_received_time >= peer.ping_interval &&
                 peer.mtu - host.packet_size >= size_of(Protocol_Ping) && 
@@ -266,8 +267,8 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
 
             peer.last_sent_time = service_time;
 
-            print("sending packet of size %...\n", host.buffers[0].length);
             sent_length := socket_send(host.socket, *peer.address, host.buffers, host.buffer_count);
+            print("sent packet of size %\n", sent_length);
             protocol_remove_sent_unreliable_commands(peer);
 
             if sent_length < 0 {
@@ -304,6 +305,8 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> int {
         host.received_data_length = xx received_length;
         host.total_received_data_length += xx received_length;
         host.total_received_packets += 1;
+
+        print("received packet of size %\n", received_length);
 
         // @TODO
         // if host.intercept !== null { }
@@ -471,8 +474,6 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     can_ping := true;
 
     current_cmd := list_begin(*peer.outgoing_reliable_commands);
-
-    print("send_relible_outgoing_commands\n");
 
     while current_cmd != list_end(*peer.outgoing_reliable_commands) {
         outgoing_cmd := cast(*Outgoing_Command)current_cmd;
@@ -697,7 +698,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
                 if peer == null error = true;
             case PROTOCOL_COMMAND_VERIFY_CONNECT; if protocol_handle_verify_connect(host, event, peer, command) error = true;
             case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) error = true;
-
+            case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number);
         }
 
         if peer == null {
@@ -869,10 +870,62 @@ protocol_handle_disconnect :: (host: *Host, peer: *Peer, command: Protocol) -> i
 }
 
 protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> int {
-    log_error("TODO: protocol_handle_verify_connect is not implemented\n");
+    if peer.state != .CONNECTING then return 0;
+
+    channel_count := net_to_host_endian(command.verify_connect.channel_count);
+
+    // @TODO :giant_if
+    if channel_count < PROTOCOL_MIN_CHANNEL_COUNT || channel_count > PROTOCOL_MAX_CHANNEL_COUNT ||
+        net_to_host_endian(command.verify_connect.packet_throttle_interval) != peer.packet_throttle_interval ||
+        net_to_host_endian(command.verify_connect.packet_throttle_acceleration) != peer.packet_throttle_acceleration ||
+        net_to_host_endian(command.verify_connect.packet_throttle_deceleration) != peer.packet_throttle_deceleration ||
+        command.verify_connect.connect_id != peer.connect_id {
+        
+        peer.event_data = 0;
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+        return -1;
+    }
+
+    protocol_remove_sent_reliable_command(peer, 1, 0xFF);
+
+    if channel_count < peer.channels.count {
+        //peer.channel_count = channel_count;
+        // This is probably fine, just means 
+        log_error("Warning: The peer verify_connect.channel_count is different than what was allocated on connect.\n");
+        log_error("   Verified % but allocated %\n", channel_count, peer.channels.count);
+        log_error("   This is probably fine, it just means there's a mismatch between the server's host_create, the client's host_create and host_connect channel counts.");
+        array_free(peer.channels);
+        peer.channels = NewArray(channel_count, Channel);
+    }
+
+    peer.outgoing_peer_id = net_to_host_endian(command.verify_connect.outgoing_peer_id);
+    peer.incoming_session_id = command.verify_connect.incoming_session_id;
+    peer.outgoing_session_id = command.verify_connect.outgoing_session_id;
+
+    mtu := net_to_host_endian(command.verify_connect.mtu);
+
+    if mtu < PROTOCOL_MIN_MTU then mtu = PROTOCOL_MIN_MTU;
+    else if mtu > PROTOCOL_MAX_MTU then mtu = PROTOCOL_MAX_MTU;
+
+    if mtu < peer.mtu then peer.mtu = mtu;
+    
+    window_size := net_to_host_endian(command.verify_connect.window_size);
+    if window_size < PROTOCOL_MIN_WINDOW_SIZE then window_size = PROTOCOL_MIN_WINDOW_SIZE;
+    else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
+
+    if window_size < peer.window_size then peer.window_size = window_size;
+
+    peer.incoming_bandwidth = net_to_host_endian(command.verify_connect.incoming_bandwidth);
+    peer.outgoing_bandwidth = net_to_host_endian(command.verify_connect.outgoing_bandwidth);
+
+    protocol_notify_connect(host, peer, event);
+    return 0;
 }
 
+protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) {
+    log_error("TODO: protocol_remove_sent_reliable_command is not implemented\n");
+}
 
-
-
-
+protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
+    log_error("TODO: protocol_notify_connect is not implemented\n");
+}

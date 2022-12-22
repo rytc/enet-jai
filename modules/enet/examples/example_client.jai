@@ -23,7 +23,7 @@ main :: () {
         event : enet.Event;
 
         print("client servicing...\n");
-        while enet.host_service(client, *event, 5000) > 0 {
+        if enet.host_service(client, *event, 5000) > 0 {
             if event.type == {
                 case;
                     print("Received event %\n", event.type);

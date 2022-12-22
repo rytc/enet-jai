@@ -41,7 +41,6 @@ Peer :: struct {
     outgoing_reliable_commands : List;
     outgoing_unreliable_commands : List;
     acknowledgements : List;
-    send_reliable_commands : List;
     sent_reliable_commands : List;
     sent_unreliable_commands : List;
     next_timeout : s64; // :Time
@@ -62,10 +61,13 @@ Peer :: struct {
     event_data : u32;
     earliest_timeout : s64; // :Time
     timeout_minimum : s64; // :Time
+    timeout_maximum : s64; // :Time
     timeout_limit : s64; // :Time
     round_trip_time : s64; // :Time
     round_trip_timeout : s64; // :Time
     round_trip_time_variance : s64; // :Time
+    last_round_trip_time : s64; // :Time
+    lowest_round_trip_time : s64; // :Time
     reliable_data_in_transit : u32;
 }
 
@@ -78,6 +80,10 @@ PEER_PACKET_THROTTLE_SCALE  :: 32;
 PEER_PACKET_LOSS_INTERVAL   :: 10000;
 PEER_PACKET_LOSS_SCALE      :: (1 << 16);
 PEER_FREE_RELIABLE_WINDOWS  :: 8;
+PEER_TIMEOUT_LIMIT          :: 32;
+PEER_TIMEOUT_MINIMUM        :: 5000;
+PEER_TIMEOUT_MAXIMUM        :: 30000;
+PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
 
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
@@ -181,6 +187,12 @@ peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 
     peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
+    peer.timeout_limit = PEER_TIMEOUT_LIMIT;
+    peer.timeout_minimum        = PEER_TIMEOUT_MINIMUM;
+    peer.timeout_maximum        = PEER_TIMEOUT_MAXIMUM;
+    peer.last_round_trip_time   = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
 }
 
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, time: u16) {

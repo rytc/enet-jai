@@ -189,7 +189,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             }
 
             if check_for_timeouts {
-                if !list_empty(*peer.send_reliable_commands) && service_time >= peer.next_timeout {
+                if !list_empty(*peer.sent_reliable_commands) && service_time >= peer.next_timeout {
                     if protocol_check_timeouts(host, peer, event) == 1 {
                         if event != null && event.type != .NONE { 
                             return 1;
@@ -200,14 +200,14 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 }
             }
 
-            if list_empty(*peer.outgoing_reliable_commands) || protocol_send_reliable_outgoing_commands(host, peer) {
-                // :Time
-                if list_empty(*peer.sent_reliable_commands) && service_time - peer.last_received_time >= peer.ping_interval {
-                    if peer.mtu - host.packet_size >= size_of(Protocol_Ping) {
-                        peer_ping(peer);
-                        protocol_send_reliable_outgoing_commands(host, peer);
-                    }
-                }
+            if list_empty(*peer.sent_reliable_commands) && 
+                service_time - peer.last_received_time >= peer.ping_interval &&
+                peer.mtu - host.packet_size >= size_of(Protocol_Ping) && 
+                (list_empty(*peer.outgoing_reliable_commands) || 
+                protocol_send_reliable_outgoing_commands(host, peer)) {
+
+                peer_ping(peer);
+                protocol_send_reliable_outgoing_commands(host, peer);
             }
 
             if !list_empty(*peer.outgoing_unreliable_commands) {
@@ -265,6 +265,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             // if should_compress { }
 
             peer.last_sent_time = service_time;
+
             print("sending packet of size %...\n", host.buffers[0].length);
             sent_length := socket_send(host.socket, *peer.address, host.buffers, host.buffer_count);
             protocol_remove_sent_unreliable_commands(peer);
@@ -321,7 +322,6 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> int {
         peer := cast(*Peer)list_remove(list_begin(*host.dispatch_queue));
 
         peer.needs_dispatch = false;
-
         if peer.state == {
             case .CONNECTION_PENDING; #through;
             case .CONNECTION_SUCCEEDED;
@@ -430,7 +430,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
         // @TODO :giant_if
         // :Time
         if peer.earliest_timeout != 0 && (
-            service_time - peer.earliest_timeout >= outgoing_cmd.timeout_maximum ||
+            service_time - peer.earliest_timeout >= peer.timeout_maximum ||
             (outgoing_cmd.round_trip_timeout >= outgoing_cmd.round_trip_timeout_limit &&
             service_time - peer.earliest_timeout >= peer.timeout_minimum)) {
 
@@ -472,6 +472,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
 
     current_cmd := list_begin(*peer.outgoing_reliable_commands);
 
+    print("send_relible_outgoing_commands\n");
 
     while current_cmd != list_end(*peer.outgoing_reliable_commands) {
         outgoing_cmd := cast(*Outgoing_Command)current_cmd;
@@ -582,6 +583,8 @@ protocol_remove_sent_unreliable_commands :: (peer: *Peer) -> int {
     while !list_empty(*peer.sent_unreliable_commands) {
         outgoing_cmd := cast(*Outgoing_Command)list_front(*peer.sent_unreliable_commands);
         list_remove(outgoing_cmd);
+
+        print("removing unreliable command!\n");
 
         if outgoing_cmd.packet != null {
             outgoing_cmd.packet.ref_count -= 1;
@@ -727,7 +730,20 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 }
 
 protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) {
-    log_error("TODO: protocol_notify_disconnect_timeout is not implemented\n");
+    if peer.state >= .CONNECTION_PENDING host.recalculate_bandwidth_limits = true;
+
+    if peer.state != .CONNECTING && peer.state < .CONNECTION_SUCCEEDED {
+        peer_reset(peer);
+    } else if event != null {
+        event.type = .DISCONNECT_TIMEOUT;
+        event.peer = peer;
+        event.data = 0;
+
+        peer_reset(peer);
+    } else {
+        peer.event_data = 0;
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+    }
 }
 
 protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
@@ -829,6 +845,7 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
 
     verify_cmd : Protocol;
+    verify_cmd.header.command = PROTOCOL_COMMAND_VERIFY_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE;
     verify_cmd.header.channel_id = 0xFF;
     verify_cmd.verify_connect.outgoing_peer_id = host_to_net_endian(peer.incoming_peer_id);
     verify_cmd.verify_connect.incoming_session_id = incoming_session_id;

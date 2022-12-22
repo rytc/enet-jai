@@ -185,7 +185,9 @@ list_clear :: (list: *List) {
 
 // @TODO this doesn't need to be a pointer...
 list_empty :: (list: *List) -> bool {
-    return list_begin(list) == list_end(list);
+    beg := list_begin(list);
+    en := list_end(list);
+    return  beg == en;
 }
 
 Buffer :: struct {
@@ -219,7 +221,6 @@ Outgoing_Command :: struct {
     fragment_length : u16;
     send_attempts : u16;
     command : Protocol;
-    timeout_maximum : s64; // :Time
 }
 
 Event_Type :: enum {

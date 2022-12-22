@@ -182,3 +182,8 @@ peer_reset :: (peer: *Peer) {
 
     peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
 }
+
+peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, time: u16) {
+    log_error("TODO: peer_queue_acknowledgement\n");
+}
+

@@ -24,7 +24,8 @@ main :: () {
     while true {
         event : enet.Event;
 
-        while enet.host_service(client, *event, 5000) > 0 {
+        while enet.host_service(client, *event, 0) > 0 {
+            print("In client: %", event);
             if event.type == {
                 case;
                     print("Received event %\n", event.type);

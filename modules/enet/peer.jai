@@ -36,6 +36,7 @@ Peer :: struct {
     packet_throttle_interval : u32;
     packet_throttle_acceleration : u32;
     packet_throttle_deceleration : u32;
+    packet_throttle_epoch : s64; // :Time
     outgoing_reliable_seq_number : u16;
     outgoing_unsequenced_group : u16;
     outgoing_reliable_commands : List;
@@ -66,6 +67,9 @@ Peer :: struct {
     round_trip_time : s64; // :Time
     round_trip_timeout : s64; // :Time
     round_trip_time_variance : s64; // :Time
+    lowest_round_trip_time_variance : s64; // :Time
+    highest_round_trip_time_variance : s64; // :Time
+    last_round_trip_time_variance : s64; // :Time
     last_round_trip_time : s64; // :Time
     lowest_round_trip_time : s64; // :Time
     reliable_data_in_transit : u32;
@@ -84,6 +88,7 @@ PEER_TIMEOUT_LIMIT          :: 32;
 PEER_TIMEOUT_MINIMUM        :: 5000;
 PEER_TIMEOUT_MAXIMUM        :: 30000;
 PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
+PEER_PING_INTERVAL           :: 500;
 
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
@@ -153,6 +158,8 @@ peer_ping :: (peer: *Peer) {
 
     if peer.state != .CONNECTED then return;
 
+    print("sending actual ping\n");
+
     command.header.command = cast(u8)(PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE);
     command.header.channel_id = 0xFF;
 
@@ -194,9 +201,12 @@ peer_reset :: (peer: *Peer) {
     peer.last_round_trip_time   = PEER_DEFAULT_ROUND_TRIP_TIME;
     peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
     peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.ping_interval          = PEER_PING_INTERVAL;
+    peer.mtu                    = peer.host.mtu;
 }
 
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
+    print("queue ack\n");
     if command.header.channel_id < peer.channels.count {
         channel := *peer.channels[command.header.channel_id];
         reliable_window := command.header.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
@@ -217,5 +227,13 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
 
     list_insert(list_end(*peer.acknowledgements), acknowledgement);
     return acknowledgement;
+}
+
+peer_throttle :: (peer: *Peer, round_trip_time: s64) {
+    log_error("TODO: peer_throttle not implemented\n");
+}
+
+peer_disconnect :: (peer: *Peer, data: u32) {
+    log_error("TODO: peer_disconnect not implemented\n");
 }
 

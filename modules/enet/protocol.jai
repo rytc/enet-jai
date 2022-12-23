@@ -187,15 +187,14 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 protocol_send_acknowledgements(host, peer);
             }
 
-            if check_for_timeouts {
-                if !list_empty(*peer.sent_reliable_commands) && service_time >= peer.next_timeout {
-                    if protocol_check_timeouts(host, peer, event) == 1 {
-                        if event != null && event.type != .NONE { 
-                            return 1;
-                        } else {
-                            continue;
-                        }
-                    }
+            if check_for_timeouts &&
+                !list_empty(*peer.sent_reliable_commands) && service_time >= peer.next_timeout &&
+                protocol_check_timeouts(host, peer, event) == 1 {
+
+                if event != null && event.type != .NONE { 
+                    return 1;
+                } else {
+                    continue;
                 }
             }
 
@@ -362,8 +361,11 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> int {
 }
 
 protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
+    print("send acks\n");
     cmd_index := host.command_count;
     buffer_index := host.buffer_count;
+    command := *host.commands[cmd_index];
+    buffer := *host.buffers[buffer_index];
 
     current_ack := list_begin(*peer.acknowledgements);
 
@@ -377,8 +379,6 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
             break;
         }
 
-        command := *host.commands[cmd_index];
-        buffer := *host.buffers[buffer_index];
 
         ack := cast(*Acknowledgement)current_ack;
         current_ack = list_next(ack);
@@ -400,12 +400,12 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
         list_remove(ack);
         free(ack);
 
-        cmd_index += 1;
-        buffer_index += 1;
+        command += 1;
+        buffer += 1;
     }
 
-    host.command_count = cmd_index - host.command_count;
-    host.buffer_count = buffer_index - host.buffer_count;
+    host.command_count = cast(u32)(command - host.commands.data); 
+    host.buffer_count = cast(u32)(buffer - host.buffers.data);
 }
 
 protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
@@ -462,7 +462,6 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 }
 
 protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
-    print("send_reliable_outgoing\n");
     cmd_index := host.command_count;
     buffer_index := host.buffer_count;
 
@@ -566,11 +565,13 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         peer.packets_sent += 1;
         peer.total_packets_sent += 1;
 
-        cmd_index += 1;
+        // cmd_index += 1;
+        cmd += 1;
         buffer += 1;
     }
 
-    host.command_count = cmd_index - host.command_count;
+    // host.command_count = cmd_index - host.command_count;
+    host.command_count = cast(u32)(cmd - host.commands.data);
     host.buffer_count = cast(u32)(buffer - host.buffers.data); // buffer_index - host.buffer_count;
 
     return can_ping;
@@ -699,10 +700,11 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
                     error = true;
                 }
                 peer = protocol_handle_connect(host, header, command);
-                if peer == null error = true;
-            case PROTOCOL_COMMAND_VERIFY_CONNECT; print("verify connect\n"); if protocol_handle_verify_connect(host, event, peer, command) != 0 error = true;
-            case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) error = true;
-            case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number);
+                if peer == null { error = true; break; }
+            case PROTOCOL_COMMAND_VERIFY_CONNECT; print("verify connect\n"); if protocol_handle_verify_connect(host, event, peer, command) { error = true; break; }
+            case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) { error = true; break; }
+            case PROTOCOL_COMMAND_PING; if protocol_handle_ping(host, peer, command) { error = true; break; }
+            case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
         }
 
         if peer == null {
@@ -758,7 +760,72 @@ protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
 }
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> int {
-    log_error("TODO: protocol_handle_acknowledge");
+    service_time := to_milliseconds(host.service_time);
+
+    if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return 0;
+
+    // :Time
+    received_sent_time := net_to_host_endian(command.acknowledge.received_sent_time);
+    received_sent_time |= cast(u16)(service_time & 0xFFFF0000);
+    if received_sent_time & 0x8000 > service_time & 0x8000 then received_sent_time -= 0x1000;
+
+    if service_time < received_sent_time then return 0;
+
+    peer.last_received_time = service_time;
+    peer.earliest_timeout = 0;
+    round_trip_time := service_time - received_sent_time;
+
+    peer_throttle(peer, round_trip_time);
+    peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
+
+    if round_trip_time >= peer.round_trip_time {
+        peer.round_trip_time += (round_trip_time - peer.round_trip_time) / 8;
+        peer.round_trip_time_variance += (round_trip_time - peer.round_trip_time) / 4;
+    } else {
+        peer.round_trip_time -= (round_trip_time - peer.round_trip_time) / 8;
+        peer.round_trip_time_variance -= (round_trip_time - peer.round_trip_time) / 4;
+    }
+
+    if peer.round_trip_time < peer.lowest_round_trip_time then peer.lowest_round_trip_time = peer.round_trip_time;
+
+    if peer.round_trip_time_variance > peer.highest_round_trip_time_variance {
+        peer.highest_round_trip_time_variance = peer.round_trip_time_variance;
+    }
+
+    if peer.packet_throttle_epoch == 0 || service_time - peer.packet_throttle_epoch >= peer.packet_throttle_interval {
+        peer.last_round_trip_time = peer.lowest_round_trip_time;
+        peer.last_round_trip_time_variance = peer.highest_round_trip_time_variance;
+        peer.lowest_round_trip_time = peer.round_trip_time;
+        peer.highest_round_trip_time_variance = peer.round_trip_time_variance;
+        peer.packet_throttle_epoch = service_time;
+    }
+
+    received_reliable_seq_number := net_to_host_endian(command.acknowledge.received_reliable_seq_number);
+    command_number := protocol_remove_sent_reliable_command(peer, received_reliable_seq_number, command.header.channel_id);
+
+    if peer.state == {
+        case .ACKNOWLEDGING_CONNECT;
+            if command_number != PROTOCOL_COMMAND_VERIFY_CONNECT return -1;
+            protocol_notify_connect(host, peer, event);
+        case .DISCONNECTING;
+            if command_number != PROTOCOL_COMMAND_DISCONNECT return -1;
+            protocol_notify_disconnect(host, peer, event);
+        case .DISCONNECT_LATER;
+            if list_empty(*peer.outgoing_reliable_commands) &&
+                list_empty(*peer.outgoing_unreliable_commands) &&
+                list_empty(*peer.sent_reliable_commands) {
+
+                peer_disconnect(peer, peer.event_data);
+            }
+    }
+
+    return 0;
+}
+
+protocol_handle_ping :: (host: *Host, peer: *Peer, command: Protocol) -> int {
+    result := ifx peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER then -1 else 0;
+    print("handle ping % - %\n", result, peer.state);
+    return  result;
 }
 
 protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Protocol) -> *Peer {
@@ -798,7 +865,6 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
 
     incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
     incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
-    print("%\n", incoming_session_id);
     if incoming_session_id == peer.outgoing_session_id {
         incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
     }
@@ -807,7 +873,6 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     outgoing_session_id := ifx command.connect.outgoing_session_id == 0xFF then peer.incoming_session_id else command.connect.outgoing_session_id;
     outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
 
-    print("%\n", outgoing_session_id);
     if outgoing_session_id == peer.incoming_session_id {
         outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
     }
@@ -1014,5 +1079,9 @@ protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
     } else {
         protocol_dispatch_state(host, peer, ifx peer.state == .CONNECTING then Peer_State.CONNECTION_SUCCEEDED else Peer_State.CONNECTION_PENDING);
     }
-
 }
+
+protocol_notify_disconnect :: (host: *Host, peer: *Peer, event: *Event) {
+    log_error("TODO: protocol_notify_disconnect not implemented\n");
+}
+

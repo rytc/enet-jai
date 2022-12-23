@@ -361,7 +361,6 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> int {
 }
 
 protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
-    print("send acks\n");
     cmd_index := host.command_count;
     buffer_index := host.buffer_count;
     command := *host.commands[cmd_index];
@@ -635,8 +634,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
     } else {
         peer = *host.peers[peer_id];
 
-        // WHY DO THEY HAVE MASSIVE CONDITION STATEMENTS LIKE THIS UGH
-        // @TODO :giant_if
         is_address_equal := in6_equal(host.received_address.host, peer.address.host);
         is_port_equal := host.received_address.port == peer.address.port;
 
@@ -665,14 +662,12 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
     }
 
     current_data := host.received_data + header_size;
-    error := false;
+    error := false; // @TODO :refactor this isn't actually used/needed
 
-    // @TODO :pointer_weirdness
     while current_data < host.received_data + host.received_data_length {
 
         command := cast(*Protocol)current_data;
 
-        // @TODO :pointer_weirdness
         if current_data + size_of(Protocol_Command_Header)  > host.received_data + host.received_data_length {
             break;
         }
@@ -681,27 +676,25 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
         if command_number > PROTOCOL_COMMAND_COUNT break;
 
         command_size := PROTOCOL_COMMAND_SIZES[command_number];
-        // @TODO :pointer_weirdness
+
         if command_size == 0 || current_data + command_size > host.received_data + host.received_data_length break;
 
         current_data += command_size;
 
-        // @TODO :pointer_weirdness
         if peer == null && (command_number != PROTOCOL_COMMAND_CONNECT || current_data < host.received_data + host.received_data_length) break;
 
         command.header.reliable_seq_number = net_to_host_endian(command.header.reliable_seq_number);
 
         print("incoming command %\n", command_number);
         if command_number == {
-            case PROTOCOL_COMMAND_ACKNOWLEDGE; print("ack\n"); if protocol_handle_acknowledge(host, event, peer, command) error = true;
+            case PROTOCOL_COMMAND_ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) error = true;
             case PROTOCOL_COMMAND_CONNECT; 
-                print("handle connect\n");
                 if peer != null  {
                     error = true;
                 }
                 peer = protocol_handle_connect(host, header, command);
                 if peer == null { error = true; break; }
-            case PROTOCOL_COMMAND_VERIFY_CONNECT; print("verify connect\n"); if protocol_handle_verify_connect(host, event, peer, command) { error = true; break; }
+            case PROTOCOL_COMMAND_VERIFY_CONNECT; if protocol_handle_verify_connect(host, event, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_PING; if protocol_handle_ping(host, peer, command) { error = true; break; }
             case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
@@ -730,10 +723,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
         }
     }
 
-    if error {
-        print("Error in handling incoming commands\n");
-        if event != null && event.type == .NONE return 1;
-    }
+    if event != null && event.type != .NONE return 1;
 
     return 0;
 }
@@ -824,7 +814,6 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
 
 protocol_handle_ping :: (host: *Host, peer: *Peer, command: Protocol) -> int {
     result := ifx peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER then -1 else 0;
-    print("handle ping % - %\n", result, peer.state);
     return  result;
 }
 

@@ -24,11 +24,10 @@ main :: () {
     while true {
         event : enet.Event;
 
-        while enet.host_service(client, *event, 0) > 0 {
-            print("In client: %", event);
+        while enet.host_service(client, *event, 1000) > 0 {
             if event.type == {
                 case;
-                    print("Received event %\n", event.type);
+                    print("!! Received event %\n", event.type);
             }
         }
 

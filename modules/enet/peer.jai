@@ -80,7 +80,11 @@ Peer :: struct {
 PEER_WINDOW_SIZE_SCALE      :: 64 * 1024;
 PEER_RELIABLE_WINDOWS       :u16: 16;
 PEER_RELIABLE_WINDOW_SIZE   :: 0x1000;
+PEER_DEFAULT_PACKET_THROTTLE :: 32;
 PEER_PACKET_THROTTLE_SCALE  :: 32;
+PEER_PACKET_THROTTLE_ACCELERATION :: 2;
+PEER_PACKET_THROTTLE_DECELERATION :: 2;
+PEER_PACKET_THROTTLE_INTERVAL :: 5000;
 PEER_PACKET_LOSS_INTERVAL   :: 10000;
 PEER_PACKET_LOSS_SCALE      :: (1 << 16);
 PEER_FREE_RELIABLE_WINDOWS  :: 8;
@@ -146,7 +150,6 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     }    
 
     if outgoing_cmd.command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE {
-        print("queue outgoing reliable\n");
         list_insert(list_end(*peer.outgoing_reliable_commands), outgoing_cmd);
     } else {
         list_insert(list_end(*peer.outgoing_unreliable_commands), outgoing_cmd);
@@ -157,8 +160,6 @@ peer_ping :: (peer: *Peer) {
     command : Protocol;
 
     if peer.state != .CONNECTED then return;
-
-    print("sending actual ping\n");
 
     command.header.command = cast(u8)(PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE);
     command.header.channel_id = 0xFF;
@@ -203,10 +204,15 @@ peer_reset :: (peer: *Peer) {
     peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
     peer.ping_interval          = PEER_PING_INTERVAL;
     peer.mtu                    = peer.host.mtu;
+    peer.packet_throttle        = PEER_DEFAULT_PACKET_THROTTLE;
+    peer.packet_throttle_limit  = PEER_PACKET_THROTTLE_SCALE;
+    peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
+    peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
+    peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
+    
 }
 
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
-    print("queue ack\n");
     if command.header.channel_id < peer.channels.count {
         channel := *peer.channels[command.header.channel_id];
         reliable_window := command.header.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
@@ -229,8 +235,29 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
     return acknowledgement;
 }
 
-peer_throttle :: (peer: *Peer, round_trip_time: s64) {
-    log_error("TODO: peer_throttle not implemented\n");
+peer_throttle :: (peer: *Peer, round_trip_time: s64) -> int {
+    if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
+        peer.packet_throttle = peer.packet_throttle_limit;
+    } else if round_trip_time < peer.last_round_trip_time {
+        peer.packet_throttle += peer.packet_throttle_acceleration;
+        
+        if peer.packet_throttle > peer.packet_throttle_acceleration {
+            peer.packet_throttle = peer.packet_throttle_limit;
+        }
+
+        return 1;
+
+    } else if round_trip_time > peer.last_round_trip_time + 2 * peer.last_round_trip_time_variance {
+        if peer.packet_throttle > peer.packet_throttle_deceleration {
+            peer.packet_throttle -= peer.packet_throttle_deceleration;
+        } else {
+            peer.packet_throttle = 0;
+        }
+
+        return -1;
+    }
+
+    return 0;
 }
 
 peer_disconnect :: (peer: *Peer, data: u32) {

@@ -32,14 +32,13 @@ PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT :: 12;
 PROTOCOL_COMMAND_COUNT           :: 13;
 PROTOCOL_COMMAND_MASK            :: 0x0F;
 
-
 Protocol_Header :: struct {
     peer_id : u16;
     sent_time : u16;
 }
 
 Protocol_Command_Header :: struct {
-    command : u32;
+    command : u8;
     channel_id : u8;
     reliable_seq_number : u16;
 }
@@ -463,6 +462,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 }
 
 protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
+    print("send_reliable_outgoing\n");
     cmd_index := host.command_count;
     buffer_index := host.buffer_count;
 
@@ -616,7 +616,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
     header := cast(*Protocol_Header)host.received_data;
 
-    peer_id := net_to_host_endian(header.peer_id);
+    peer_id :u16= net_to_host_endian(header.peer_id);
     session_id := (peer_id & PROTOCOL_SESSION_MASK) >> PROTOCOL_SESSION_SHIFT;
     flags := peer_id & PROTOCOL_FLAG_MASK;
     peer_id &= ~(cast(u16)PROTOCOL_FLAG_MASK | cast(u16)PROTOCOL_SESSION_MASK);
@@ -636,10 +636,12 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
         // WHY DO THEY HAVE MASSIVE CONDITION STATEMENTS LIKE THIS UGH
         // @TODO :giant_if
+        is_address_equal := in6_equal(host.received_address.host, peer.address.host);
+        is_port_equal := host.received_address.port == peer.address.port;
+
         if peer.state == .DISCONNECTED || peer.state == .ZOMBIE ||
-        ((!in6_equal(host.received_address.host, peer.address.host) || 
-        host.received_address.port != peer.address.port)) ||
-        (peer.outgoing_peer_id < PROTOCOL_MAX_PEER_ID && session_id != peer.incoming_session_id) {
+            ((!is_address_equal || !is_port_equal)) ||
+            (peer.outgoing_peer_id < PROTOCOL_MAX_PEER_ID && session_id != peer.incoming_session_id) {
 
             return 0;
         }
@@ -688,15 +690,17 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
         command.header.reliable_seq_number = net_to_host_endian(command.header.reliable_seq_number);
 
+        print("incoming command %\n", command_number);
         if command_number == {
-            case PROTOCOL_COMMAND_ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) error = true;
+            case PROTOCOL_COMMAND_ACKNOWLEDGE; print("ack\n"); if protocol_handle_acknowledge(host, event, peer, command) error = true;
             case PROTOCOL_COMMAND_CONNECT; 
+                print("handle connect\n");
                 if peer != null  {
                     error = true;
                 }
                 peer = protocol_handle_connect(host, header, command);
                 if peer == null error = true;
-            case PROTOCOL_COMMAND_VERIFY_CONNECT; if protocol_handle_verify_connect(host, event, peer, command) error = true;
+            case PROTOCOL_COMMAND_VERIFY_CONNECT; print("verify connect\n"); if protocol_handle_verify_connect(host, event, peer, command) != 0 error = true;
             case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) error = true;
             case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number);
         }
@@ -714,16 +718,18 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
                 case .DISCONNECTING; #through;
                 case .ACKNOWLEDGING_CONNECT; #through;
                 case .DISCONNECTED; #through;
-                case .ZOMBIE; // do nothing
+                case .ZOMBIE; // do nothing 
                 case .ACKNOWLEDGING_DISCONNECT;
                     if command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_DISCONNECT peer_queue_acknowledgement(peer, command, sent_time);
                 case;
+                    print("Queueing acknowledgement\n");
                     peer_queue_acknowledgement(peer, command, sent_time);
             }
         }
     }
 
     if error {
+        print("Error in handling incoming commands\n");
         if event != null && event.type == .NONE return 1;
     }
 
@@ -752,7 +758,7 @@ protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
 }
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> int {
-    log_error("TODO: protocol_handle_acknowledge is not implemented\n");
+    log_error("TODO: protocol_handle_acknowledge");
 }
 
 protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Protocol) -> *Peer {
@@ -792,16 +798,17 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
 
     incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
     incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
-
+    print("%\n", incoming_session_id);
     if incoming_session_id == peer.outgoing_session_id {
         incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
     }
     peer.outgoing_session_id = incoming_session_id;
 
-    outgoing_session_id := ifx command.connect.outgoing_session_id == 0xFF then peer.outgoing_session_id else command.connect.outgoing_session_id;
+    outgoing_session_id := ifx command.connect.outgoing_session_id == 0xFF then peer.incoming_session_id else command.connect.outgoing_session_id;
     outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
 
-    if outgoing_session_id == peer.outgoing_session_id {
+    print("%\n", outgoing_session_id);
+    if outgoing_session_id == peer.incoming_session_id {
         outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
     }
     peer.incoming_session_id = outgoing_session_id;
@@ -846,7 +853,7 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
 
     verify_cmd : Protocol;
-    verify_cmd.header.command = PROTOCOL_COMMAND_VERIFY_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE;
+    verify_cmd.header.command = cast(u8)(PROTOCOL_COMMAND_VERIFY_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE);
     verify_cmd.header.channel_id = 0xFF;
     verify_cmd.verify_connect.outgoing_peer_id = host_to_net_endian(peer.incoming_peer_id);
     verify_cmd.verify_connect.incoming_session_id = incoming_session_id;
@@ -861,6 +868,7 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     verify_cmd.verify_connect.packet_throttle_deceleration = host_to_net_endian(peer.packet_throttle_deceleration);
     verify_cmd.verify_connect.connect_id = peer.connect_id;
 
+    print("send verify\n");
     peer_queue_outgoing_command(peer, *verify_cmd, null, 0, 0);
     return peer;
 }
@@ -990,5 +998,21 @@ protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16,
 }
 
 protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
-    log_error("TODO: protocol_notify_connect is not implemented\n");
+    host.recalculate_bandwidth_limits = true;
+
+    if event != null {
+        protocol_change_state(host, peer, .CONNECTED);
+
+        peer.total_data_sent = 0;
+        peer.total_data_received = 0;
+        peer.total_packets_sent = 0;
+        peer.total_packets_lost = 0;
+
+        event.type = .CONNECT;
+        event.peer = peer;
+        event.data = peer.event_data;
+    } else {
+        protocol_dispatch_state(host, peer, ifx peer.state == .CONNECTING then Peer_State.CONNECTION_SUCCEEDED else Peer_State.CONNECTION_PENDING);
+    }
+
 }

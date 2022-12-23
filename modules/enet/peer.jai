@@ -141,6 +141,7 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     }    
 
     if outgoing_cmd.command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE {
+        print("queue outgoing reliable\n");
         list_insert(list_end(*peer.outgoing_reliable_commands), outgoing_cmd);
     } else {
         list_insert(list_end(*peer.outgoing_unreliable_commands), outgoing_cmd);
@@ -152,7 +153,7 @@ peer_ping :: (peer: *Peer) {
 
     if peer.state != .CONNECTED then return;
 
-    command.header.command = PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE;
+    command.header.command = cast(u8)(PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE);
     command.header.channel_id = 0xFF;
 
     peer_queue_outgoing_command(peer, *command, null, 0, 0);
@@ -195,7 +196,26 @@ peer_reset :: (peer: *Peer) {
     peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
 }
 
-peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, time: u16) {
-    log_error("TODO: peer_queue_acknowledgement\n");
+peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
+    if command.header.channel_id < peer.channels.count {
+        channel := *peer.channels[command.header.channel_id];
+        reliable_window := command.header.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+        current_window := channel.incoming_reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+
+        if command.header.reliable_seq_number < channel.incoming_reliable_seq_number then reliable_window + PEER_RELIABLE_WINDOWS;
+
+        if reliable_window >= current_window + PEER_FREE_RELIABLE_WINDOWS - 1 && reliable_window <= current_window + PEER_FREE_RELIABLE_WINDOWS {
+            return null;
+        }
+    }
+
+    acknowledgement := New(Acknowledgement);
+    
+    peer.outgoing_data_total += size_of(Acknowledgement);
+    acknowledgement.sent_time = sent_time;
+    acknowledgement.command = <<command;
+
+    list_insert(list_end(*peer.acknowledgements), acknowledgement);
+    return acknowledgement;
 }
 

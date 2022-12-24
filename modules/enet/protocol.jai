@@ -1022,11 +1022,6 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
     protocol_remove_sent_reliable_command(peer, 1, 0xFF);
 
     if channel_count < peer.channels.count {
-        //peer.channel_count = channel_count;
-        // This is probably fine, just means 
-        log_error("Warning: The peer verify_connect.channel_count is different than what was allocated on connect.\n");
-        log_error("   Verified % but allocated %\n", channel_count, peer.channels.count);
-        log_error("   This is probably fine, it just means there's a mismatch between the server's host_create, the client's host_create and host_connect channel counts.");
         array_free(peer.channels);
         peer.channels = NewArray(channel_count, Channel);
     }

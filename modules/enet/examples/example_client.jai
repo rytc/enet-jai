@@ -14,20 +14,24 @@ main :: () {
     // Client is created by not binding to an address
     client, success := enet.host_create(null, 4, channel_count, 0, 0);
 
-    if !success print("Failed to create client\n");
+    if !success { 
+        print("Failed to create client\n");
+        return;
+    }
 
+    defer enet.host_destroy(client);
+
+    // To get an address by domain name, use get_host_name_address("my.domain.co")
     address := enet.get_host_ip_address("127.0.0.1");
     address.port = 1234;
 
     peer := enet.host_connect(client, *address, channel_count, 0); 
 
     msg := "The fox jumped over the lazy dog";
-    msg_cstr := to_c_string(msg);
-    packet := enet.packet_create(cast(*void)msg_cstr, cast(u32)(msg.count + 1), .RELIABLE);
+    packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
 
     msg2 := "The UNRELIABLE fox jumped over the lazy dog";
-    msg2_cstr := to_c_string(msg2);
-    packet_unreliable := enet.packet_create(cast(*void)msg2_cstr, cast(u32)(msg2.count + 1), .UNRELIABLE_FRAGMENT);
+    packet_unreliable := enet.packet_create(msg2.data, msg2.count, .UNRELIABLE_FRAGMENT);
 
     send_msg := 0;
 
@@ -55,7 +59,6 @@ main :: () {
         sleep_milliseconds(16);
     }
 
-    enet.host_destroy(client);
 }
 
 #scope_file

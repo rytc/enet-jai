@@ -16,7 +16,12 @@ main :: () {
 
     host, success := enet.host_create(*address, 4, 1, 0, 0);
 
-    if !success print("Failed to create server\n");
+    if !success {
+        print("Failed to create server\n");
+        return;
+    }
+
+    defer enet.host_destroy(host);
 
     while true {
         event : enet.Event;
@@ -36,7 +41,6 @@ main :: () {
         sleep_milliseconds(16);
     }
 
-    enet.host_destroy(host);
 }
 
 #scope_file

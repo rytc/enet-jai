@@ -397,9 +397,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
     command := *host.commands[host.command_count];
     buffer := *host.buffers[host.buffer_count];
 
-    current_ack := list_begin(*peer.acknowledgements);
-
-    while current_ack != list_end(*peer.acknowledgements) {
+    for current_ack: *peer.acknowledgements {
 
         // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
@@ -412,7 +410,6 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 
 
         ack := cast(*Acknowledgement)current_ack;
-        current_ack = list_next(ack);
 
         buffer.data = command;
         buffer.length = size_of(Protocol_Acknowledge);
@@ -441,13 +438,10 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 
 protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 
-    current_cmd := list_begin(*peer.sent_reliable_commands);
     insert_pos := list_begin(*peer.outgoing_reliable_commands);
 
-    while current_cmd != list_end(*peer.sent_reliable_commands) {
-        outgoing_cmd := cast(*Outgoing_Command)current_cmd;
-
-        current_cmd = list_next(current_cmd);
+    for *peer.sent_reliable_commands {
+        outgoing_cmd := cast(*Outgoing_Command)it;
 
         // :Time
         service_time := to_milliseconds(host.service_time);
@@ -483,8 +477,8 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 
         list_insert(insert_pos, list_remove(outgoing_cmd));
 
-        if current_cmd == list_begin(*peer.sent_reliable_commands) && !list_empty(*peer.sent_reliable_commands) {
-            outgoing_cmd = cast(*Outgoing_Command)current_cmd;
+        if it_index == 0 && !list_empty(*peer.sent_reliable_commands) {
+            outgoing_cmd = cast(*Outgoing_Command)it;
             peer.next_timeout = outgoing_cmd.sent_time + outgoing_cmd.round_trip_timeout;
         }
     }
@@ -500,10 +494,14 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     window_exceeded := true;
     can_ping := true;
 
-    current_cmd := list_begin(*peer.outgoing_reliable_commands);
+    prev_cmd : * List_Node = null;
+    remove_prev :: () #expand {
+        if prev_cmd list_insert(list_end(*peer.sent_reliable_commands), list_remove(prev_cmd));
+    }
 
-    while current_cmd != list_end(*peer.outgoing_reliable_commands) {
-        outgoing_cmd := cast(*Outgoing_Command)current_cmd;
+    for *peer.outgoing_reliable_commands {
+        remove_prev();
+        outgoing_cmd := cast(*Outgoing_Command)it;
 
         channel := ifx outgoing_cmd.command.header.channel_id < peer.channels.count then *peer.channels[outgoing_cmd.command.header.channel_id] else cast(*Channel)null;
         reliable_window := outgoing_cmd.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
@@ -517,10 +515,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
                 window_wrap = true;
             }
 
-            if window_wrap {
-                current_cmd = list_next(current_cmd);
-                continue;
-            }
+            if window_wrap continue;
         }
 
         if outgoing_cmd.packet != null {
@@ -528,19 +523,13 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
                 window_size := (peer.packet_throttle * peer.window_size) / PEER_PACKET_THROTTLE_SCALE;
 
                 if peer.reliable_data_in_transit + outgoing_cmd.fragment_length > max(window_size, peer.mtu) then window_exceeded = true;
-
-                if window_exceeded {
-                    current_cmd = list_next(current_cmd);
-                    continue;
-                }
+                if window_exceeded continue;
             }
         }
 
         can_ping = false;
-
         cmd_size := PROTOCOL_COMMAND_SIZES[outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK];
 
-        // @TODO :fix_loop_check
         if cmd - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
             buffer - host.buffers.data + 1 >= cast(u32)(MAX_BUFFER_COUNT) ||
             peer.mtu - host.packet_size < cmd_size ||
@@ -549,8 +538,6 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
             host.continue_sending = true;
             break;
         }
-
-        current_cmd = list_next(current_cmd);
 
         if channel && outgoing_cmd.send_attempts < 1 {
             channel.used_reliable_windows |= cast(u16)1 << reliable_window;
@@ -567,7 +554,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         // :Time
         if list_empty(*peer.sent_reliable_commands) then peer.next_timeout = to_milliseconds(host.service_time) + outgoing_cmd.round_trip_timeout;
 
-        list_insert(list_end(*peer.sent_reliable_commands), list_remove(outgoing_cmd));
+        prev_cmd = it;
 
         outgoing_cmd.sent_time = cast(u32)to_milliseconds(host.service_time);
 
@@ -590,13 +577,16 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         peer.packets_sent += 1;
         peer.total_packets_sent += 1;
 
-        // cmd_index += 1;
         cmd += 1;
         buffer += 1;
     }
 
     host.command_count = cast(u32)(cmd - host.commands.data);
     host.buffer_count = cast(u32)(buffer - host.buffers.data);
+
+    // If this is called via defer at the top, then the list is not modified
+    // There seems to be a compiler bug?? 
+    remove_prev();
 
     return can_ping;
 }

@@ -31,7 +31,9 @@ main :: () {
                 case .CONNECT;
                     print("A client has connected!\n");
                 case .RECEIVE;
-                    msg := to_string(event.packet.data);
+                    msg : string;
+                    msg.count = event.packet.data_length;
+                    msg.data = event.packet.data;
                     print("We received a message! The message says \"%\"\n", msg); 
                 case;
                     print("Received event %\n", event.type);

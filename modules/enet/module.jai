@@ -9,10 +9,12 @@
 
 HOST_ANY :: V6_ANY_ADDR;
 
-Address :: struct {
-    host : in6_addr;
-    port : u16;
-    sin6_scope_id : u16;
+Event_Type :: enum {
+    NONE;
+    CONNECT;
+    DISCONNECT;
+    RECEIVE;
+    DISCONNECT_TIMEOUT;
 }
 
 Packet_Flags :: enum_flags u16 {
@@ -23,33 +25,31 @@ Packet_Flags :: enum_flags u16 {
     SENT;
 }
 
-Packet :: struct {
-    ref_count : u32;
-    flags : Packet_Flags;
-    data : *u8;
-    data_length: u32;
-    user_data : *Any;
+Address :: struct {
+    host          : in6_addr;
+    port          : u16;
+    sin6_scope_id : u16;
 }
 
-Event_Type :: enum {
-    NONE;
-    CONNECT;
-    DISCONNECT;
-    RECEIVE;
-    DISCONNECT_TIMEOUT;
+Packet :: struct {
+    ref_count   :  u32;
+    flags       :  Packet_Flags;
+    data        : *u8;
+    data_length :  u32;
+    user_data   : *Any;
 }
 
 Event :: struct {
-    type : Event_Type;
-    peer : *Peer;
+    type       : Event_Type;
+    peer       : *Peer;
     channel_id : u8;
-    data : u32;
-    packet : *Packet;
+    data       : u32;
+    packet     : *Packet;
 }
 
 initialize :: () -> bool {
     #if OS == .WINDOWS {
-        version : u16 = (1 << 8) | 1;
+        version :u16= (1 << 8) | 1;
         wsa_data : WSAData;
 
         if WSAStartup(version, *wsa_data) {
@@ -81,11 +81,31 @@ deinitialize :: () {
 
 
 packet_create :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return packet_create(xx data, xx size_of(T), flags);
+    return packet_create(cast(*void)data, size_of(T), flags);
 }
 
 packet_create :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return packet_create(xx data.data, xx data.count, flags);
+    return packet_create(cast(*void)data.data, data.count, flags);
+}
+
+packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
+    packet : *Packet;
+
+    assert(data_length >= 0 && data_length <= U32_MAX);
+
+    if flags & .NO_ALLOCATE {
+        packet = New(Packet);
+        packet.data = xx data;
+    } else {
+        packet = alloc(size_of(Packet) + data_length);
+        packet.data = cast(*u8)(packet) + size_of(Packet);
+        memcpy(packet.data, data, cast(u32)data_length);
+    }
+
+    packet.flags = flags;
+    packet.data_length = cast(u32)data_length;
+
+    return packet;
 }
 
 packet_destroy :: (packet: *Packet) {
@@ -102,27 +122,6 @@ get_host_name_address :: (host: string) -> Address, bool {
     return address, success;
 }
 
-packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
-    packet : *Packet;
-
-    assert(data_length >= 0 && data_length <= U32_MAX);
-
-    // @TODO :alloc better allocation strategy?
-    if flags & .NO_ALLOCATE {
-        packet = New(Packet);
-        packet.data = xx data;
-    } else {
-        packet = alloc(size_of(Packet) + data_length);
-        packet.data = cast(*u8)(packet) + size_of(Packet);
-        memcpy(packet.data, data, cast(u32)data_length);
-    }
-
-    packet.flags = flags;
-    packet.data_length = cast(u32)data_length;
-
-    return packet;
-}
-
 #load "host.jai";
 #load "peer.jai";
 
@@ -135,7 +134,7 @@ packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIA
 start_time : Apollo_Time;
 
 V6_ANY_ADDR :: in6_addr.{.{.[ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]}};
-V6_NO_ADDR :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ]}};
+V6_NO_ADDR  :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ]}};
 
 #if OS == .WINDOWS {
     MAX_BUFFER_COUNT :s32: cast(s32)MSG.MSG_MAXIOVLEN;
@@ -215,7 +214,6 @@ list_clear :: (list: *List) {
     list.sentinel.prev = *list.sentinel;
 }
 
-// @TODO this doesn't need to be a pointer...
 list_empty :: (list: *List) -> bool {
     beg := list_begin(list);
     en := list_end(list);
@@ -236,41 +234,41 @@ Channel :: struct {
 // Should match WSABUF
 Buffer :: struct {
     length : u32;
-    data : *void;
+    data   : *void;
 }
 
 Acknowledgement :: struct {
     #as using list : List_Node;
-    sent_time: u32; // :Time
-    command : Protocol;
+    sent_time      : u32; // :Time
+    command        : Protocol;
 }
 
 Command :: struct {
     #as using list : List_Node;
-    packet : *Packet;
+    packet         : *Packet;
 }
 
 Incoming_Command :: struct {
-    #as using base : Command;
-    reliable_seq_number : u16;
+    #as using base        : Command;
+    reliable_seq_number   : u16;
     unreliable_seq_number : u16;
-    command : Protocol;
-    fragment_count : u32;
-    fragments_remaining : u32;
-    fragments : []u32;
+    command               : Protocol;
+    fragment_count        : u32;
+    fragments_remaining   : u32;
+    fragments             : []u32;
 }
 
 Outgoing_Command :: struct {
-    #as using base : Command;
-    reliable_seq_number : u16;
-    unreliable_seq_number : u16;
-    sent_time : u32;
-    round_trip_timeout : s64;
+    #as using base           : Command;
+    reliable_seq_number      : u16;
+    unreliable_seq_number    : u16;
+    sent_time                : u32;
+    round_trip_timeout       : s64;
     round_trip_timeout_limit : s64;
-    fragment_offset : u32;
-    fragment_length : u16;
-    send_attempts : u16;
-    command : Protocol;
+    fragment_offset          : u32;
+    fragment_length          : u16;
+    send_attempts            : u16;
+    command                  : Protocol;
 }
 
 random_seed :: () -> u64 {
@@ -282,11 +280,10 @@ random_seed :: () -> u64 {
 }
 
 lookup_host :: (name: string, no_dns: bool) -> Address, bool {
-    hints : addrinfo;
     result_list : *addrinfo;
-    result : *addrinfo;
     result_address : Address;
 
+    hints : addrinfo;
     hints.ai_family = AF_UNSPEC;
 
     if no_dns hints.ai_flags = .NUMERICHOST;
@@ -299,7 +296,7 @@ lookup_host :: (name: string, no_dns: bool) -> Address, bool {
 
     defer freeaddrinfo(result_list);
 
-    result = result_list;
+    result := result_list;
     while result != null {
         defer result += 1;
 

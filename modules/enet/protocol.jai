@@ -477,12 +477,10 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         reliable_window := outgoing_cmd.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
 
         if channel != null {
-            // BRO WHY DO THEY DO THIS
-            // @TODO :giant_if
             if !window_wrap && outgoing_cmd.send_attempts < 1 &&
-            !(outgoing_cmd.reliable_seq_number % PEER_RELIABLE_WINDOW_SIZE) && 
-            channel.reliable_windows[(reliable_window + PEER_RELIABLE_WINDOWS - 1) % PEER_RELIABLE_WINDOWS] >= PEER_RELIABLE_WINDOW_SIZE ||
-            channel.used_reliable_windows & ((((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) << reliable_window | (((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) >> (PEER_RELIABLE_WINDOWS - reliable_window)))) {
+                !(outgoing_cmd.reliable_seq_number % PEER_RELIABLE_WINDOW_SIZE) && 
+                channel.reliable_windows[(reliable_window + PEER_RELIABLE_WINDOWS - 1) % PEER_RELIABLE_WINDOWS] >= PEER_RELIABLE_WINDOW_SIZE ||
+                channel.used_reliable_windows & ((((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) << reliable_window | (((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) >> (PEER_RELIABLE_WINDOWS - reliable_window)))) {
 
                 window_wrap = true;
             }
@@ -996,7 +994,6 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     verify_cmd.verify_connect.packet_throttle_deceleration = host_to_net_endian(peer.packet_throttle_deceleration);
     verify_cmd.verify_connect.connect_id = peer.connect_id;
 
-    print("send verify\n");
     peer_queue_outgoing_command(peer, *verify_cmd, null, 0, 0);
     return peer;
 }
@@ -1158,15 +1155,24 @@ protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, 
 
     if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Reliable), data_length, .RELIABLE, 0) == null return -1;
 
-
     return 0;
 }
 
 protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
-    log_error("TODO: protocol_handle_send_unreliable not implemented\n");
+
+    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return -1;
+
+    data_length := net_to_host_endian(command.send_unreliable.data_length);
+    <<current_data += data_length;
+    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return -1;
+
+    if peer_queue_incoming_command(peer, command, (cast(*u8)command) + size_of(Protocol_Send_Unreliable), data_length, 0, 0) == null then return -1;
+
+    return 0;
 }
 
 protocol_handle_send_unsequenced :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
+    log_error("TODO: protocol_handle_send_unsequenced\n");
     // if (command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) return -1;
 
     // data_length := net_to_host_endian(command.send_unsequenced.data_length);

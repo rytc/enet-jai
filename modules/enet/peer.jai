@@ -21,16 +21,21 @@ Peer :: struct {
     mtu : u32;
     host : Host;
     window_size : u32;
+
     outgoing_peer_id : u16;
     incoming_peer_id : u16;
+
     outgoing_session_id : u8; 
     incoming_session_id : u8;
+
     outgoing_data_total : u32;
     incoming_data_total : u32;
+
     outgoing_bandwidth : u32;
     incoming_bandwidth : u32;
     outgoing_bandwidth_throttle_epoch : s64; // :Time
     incoming_bandwidth_throttle_epoch : s64; // :Time
+
     packet_throttle : u32;
     packet_throttle_limit : u32;
     packet_throttle_interval : u32;
@@ -38,30 +43,36 @@ Peer :: struct {
     packet_throttle_deceleration : u32;
     packet_throttle_epoch : s64; // :Time
     packet_throttle_counter : u32;
+
     outgoing_reliable_seq_number : u16;
     outgoing_unsequenced_group : u16;
+
     outgoing_reliable_commands : List;
     outgoing_unreliable_commands : List;
     acknowledgements : List;
+
     sent_reliable_commands : List;
     sent_unreliable_commands : List;
+    dispatched_commands : List;
+
     next_timeout : s64; // :Time
     last_received_time : s64; // :Time
     last_sent_time : s64; // :Time
     ping_interval : s64; // :Time
+
     packet_loss_epoch : s64; // :Time
     packets_sent : u32;
     packets_lost : u32;
     packet_loss : u32;
     packet_loss_variance : u32;
+
     total_data_sent : u64;
     total_data_received : u64;
     total_packets_lost : u32;
     total_packets_sent : u32;
     total_waiting_data : u32;
-    needs_dispatch : bool;
-    dispatched_commands : List;
-    event_data : u32;
+    reliable_data_in_transit : u32;
+    
     earliest_timeout : s64; // :Time
     timeout_minimum : s64; // :Time
     timeout_maximum : s64; // :Time
@@ -74,11 +85,13 @@ Peer :: struct {
     last_round_trip_time_variance : s64; // :Time
     last_round_trip_time : s64; // :Time
     lowest_round_trip_time : s64; // :Time
-    reliable_data_in_transit : u32;
+
+    needs_dispatch : bool;
+    event_data : u32;
 }
 
 peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
-    assert(channel_id > 0 && channel_id < PROTOCOL_MAX_CHANNEL_COUNT);
+    assert(channel_id >= 0 && channel_id < PROTOCOL_MAX_CHANNEL_COUNT);
 
     channel := *peer.channels[channel_id];
 
@@ -165,7 +178,7 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
         command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
     } else {
         command.header.command = PROTOCOL_COMMAND_SEND_UNRELIABLE;
-        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+        command.send_unreliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
     }
 
     if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return -1;
@@ -250,9 +263,10 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         outgoing_cmd.reliable_seq_number = 0;
         outgoing_cmd.unreliable_seq_number = 0;
     } else {
+        channel = *peer.channels[outgoing_cmd.command.header.channel_id];
+
         if outgoing_cmd.fragment_offset == 0 channel.outgoing_unreliable_seq_number += 1;
 
-        channel = *peer.channels[outgoing_cmd.command.header.channel_id];
 
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = channel.outgoing_unreliable_seq_number;
@@ -452,7 +466,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
         case PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
             unreliable_seq_number = net_to_host_endian(command.send_unreliable.unreliable_seq_number);
 
-            if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_reliable_seq_number do_error(true);
+            if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_unreliable_seq_number do_error(true);
 
             current_cmd = list_previous(list_end(*channel.incoming_unreliable_commands));
             while current_cmd != list_end(*channel.incoming_unreliable_commands) {
@@ -556,5 +570,82 @@ peer_dispatch_incoming_reliable_commands :: (peer: *Peer, channel: *Channel) {
 }
 
 peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
-    log_error("TODO: peer_dispatch_incoming_unreliable_commands not implemented\n");
+
+    dropped_cmd := list_begin(*channel.incoming_unreliable_commands);
+    start_cmd := dropped_cmd;
+    current_cmd := dropped_cmd;
+
+    while current_cmd != list_end(*channel.incoming_unreliable_commands) {
+
+        incoming_cmd := cast(*Incoming_Command)current_cmd;
+
+        if incoming_cmd.command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED then {
+            current_cmd = list_next(current_cmd);
+            continue;
+        }
+
+        if incoming_cmd.reliable_seq_number == channel.incoming_reliable_seq_number {
+            if incoming_cmd.fragments_remaining <= 0 {
+                channel.incoming_unreliable_seq_number = incoming_cmd.unreliable_seq_number;
+                current_cmd = list_next(current_cmd);
+                continue;
+            }
+
+            if start_cmd != current_cmd {
+                list_move(list_end(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
+
+                if !peer.needs_dispatch {
+                    list_insert(list_end(*peer.dispatched_commands), *peer.dispatch_list);
+                    peer.needs_dispatch = true;
+                }
+
+
+                dropped_cmd = current_cmd;
+            } else if dropped_cmd != current_cmd {
+                dropped_cmd = list_previous(current_cmd);
+            }
+        } else {
+
+            reliable_window := incoming_cmd.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+            current_window := channel.incoming_reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+
+            if incoming_cmd.reliable_seq_number < channel.incoming_reliable_seq_number {
+                reliable_window += PEER_RELIABLE_WINDOWS;
+            }
+
+            if reliable_window >= current_window && reliable_window < current_window + PEER_FREE_RELIABLE_WINDOWS -1 then break;
+
+            dropped_cmd = list_next(current_cmd);
+
+            if start_cmd != current_cmd {
+                list_move(list_next(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
+
+                if !peer.needs_dispatch {
+                    list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+                    peer.needs_dispatch = true;
+                }
+            }
+        }
+
+        start_cmd = list_next(current_cmd);
+
+        current_cmd = list_next(current_cmd);
+    }
+
+    if start_cmd != current_cmd {
+        list_move(list_end(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
+
+        if !peer.needs_dispatch {
+            list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+            peer.needs_dispatch = true;
+        }
+
+        dropped_cmd = current_cmd;
+    }
+
+    peer_remove_incoming_commands(*channel.incoming_unreliable_commands, list_begin(*channel.incoming_unreliable_commands), dropped_cmd);
+}
+
+peer_remove_incoming_commands :: (list: *List, node: *List_Node, node2: *List_Node) {
+    log_error("TODO peer_remove_incoming_commands not implemented\n");
 }

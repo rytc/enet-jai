@@ -23,7 +23,7 @@ socket_create :: () -> Socket {
 socket_destroy :: (socket: Socket) {
     #if OS == .WINDOWS {
         closesocket(socket);
-    } else {
+    } else #if OS == .UNIX {
         close(socket);
     }
 }
@@ -95,33 +95,18 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
         time.tv_usec = cast(s32)(timeout % 1000) * 1000;
 
 
-        if <<condition & .SEND {
-            FD_SET(socket, *write_set);
-        }
-
-        if <<condition & .RECEIVE {
-            FD_SET(socket, *read_set);
-        }
+        if <<condition & .SEND then FD_SET(socket, *write_set);
+        if <<condition & .RECEIVE then FD_SET(socket, *read_set);
 
         select_count = select(cast(s32)(socket + 1), *read_set, *write_set, null, *time);
 
-        if select_count < 0 {
-            return -1;
-        }
+        if select_count < 0 then return -1;
 
         <<condition = .NONE;
 
-        if select_count == 0 {
-            return 0;
-        }
-
-        if FD_ISSET(socket, *write_set) {
-            <<condition |= .SEND;
-        }
-
-        if FD_ISSET(socket, *read_set) {
-            <<condition |= .RECEIVE;
-        }
+        if select_count == 0 then return 0;
+        if FD_ISSET(socket, *write_set) then <<condition |= .SEND;
+        if FD_ISSET(socket, *read_set) then <<condition |= .RECEIVE;
 
     } else #if OS == .UNIX {
         poll_socket : pollfd;
@@ -130,13 +115,8 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
         poll_socket.fd     = socket;
         poll_socket.events = 0;
 
-        if <<condition & .WAIT_SEND {
-            poll_socket.events |= POLLOUT;
-        }
-
-        if <<condition & .WAIT_RECEIVE {
-            poll_socket.events |= POLLIN;
-        }
+        if <<condition & .WAIT_SEND then poll_socket.events |= POLLOUT;
+        if <<condition & .WAIT_RECEIVE then poll_socket.events |= POLLIN;
 
         poll_count = poll(*poll_socket, 1, timeout);
 
@@ -152,17 +132,9 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
 
         <<condition = .WAIT_NONE;
 
-        if poll_count == 0 {
-            return 0;
-        }
-
-        if poll_socket.revents & POLLOUT {
-            <<condition |= .WAIT_SEND;
-        }
-
-        if pollSocket.revents & POLLIN {
-            <<condition |= .WAIT_RECEIVE;
-        }
+        if poll_count == 0 then return 0;
+        if poll_socket.revents & POLLOUT then <<condition |= .WAIT_SEND;
+        if pollSocket.revents & POLLIN then <<condition |= .WAIT_RECEIVE;
     }
 
     return 0;
@@ -172,33 +144,34 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
     sin : sockaddr_in6;
     sent_length : u32;
 
-    #if OS == .LINUX {
-        msg_header : msghdr;
-    }
-
-    if address != null {
-        sin.sin6_family = AF_INET6;
-        sin.sin6_port = host_to_net_endian(address.port);
-        sin.sin6_addr = address.host;
-        sin.sin6_scope_id = address.sin6_scope_id;
-
-        #if OS == .LINUX {
-            msg_header.msg_name = *sin;
-            msg_header.msg_namelen = size_of(sockaddr_in6);
-        }
-    }
-
     #if OS == .WINDOWS {
+        if address != null {
+            sin.sin6_family = AF_INET6;
+            sin.sin6_port = host_to_net_endian(address.port);
+            sin.sin6_addr = address.host;
+            sin.sin6_scope_id = address.sin6_scope_id;
+        }
 
         if WSASendTo(socket, cast(*WSABUF)buffers.data, xx buffer_count, *sent_length, 0, 
-        ifx address then cast(*sockaddr)*sin else null,
-        ifx address then cast(s32)size_of(sockaddr_in6) else cast(s32)0,
-        null, null) == SOCKET_ERROR {
+            ifx address then cast(*sockaddr)*sin else null,
+            ifx address then cast(s32)size_of(sockaddr_in6) else cast(s32)0,
+            null, null) == SOCKET_ERROR {
 
             return ifx WSAGetLastError() == WSAEWOULDBLOCK then cast(s32)0 else cast(s32)-1;
         }
+    } else #if OS == .UNIX {
+        msg_header : msghdr;
 
-    } else #if OS == .LINUX {
+        if address != null {
+            sin.sin6_family = AF_INET6;
+            sin.sin6_port = host_to_net_endian(address.port);
+            sin.sin6_addr = address.host;
+            sin.sin6_scope_id = address.sin6_scope_id;
+
+            msg_header.msg_name = *sin;
+            msg_header.msg_namelen = size_of(sockaddr_in6);
+        }
+
         msg_header.msg_iov = cast(*iovec)buffers.data;
         msg_header.msg_iovlen = buffers.count;
 
@@ -247,7 +220,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
             address.sin6_scope_id  = xx sin.sin6_scope_id;
         }
 
-    } else #if OS == .LINUX {
+    } else #if OS == .UNIX {
         msg_header : msghdr;
         msg_header.msg_name = *sin;
         msg_header.msg_namelen = size_of(sockaddr_in6);

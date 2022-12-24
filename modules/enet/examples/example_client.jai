@@ -16,7 +16,7 @@ main :: () {
 
     if !success print("Failed to create client\n");
 
-    address, success_ip := enet.get_host_ip_address("127.0.0.1");
+    address := enet.get_host_ip_address("127.0.0.1");
     address.port = 1234;
 
     peer := enet.host_connect(client, *address, channel_count, 0); 

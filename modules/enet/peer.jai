@@ -57,6 +57,7 @@ Peer :: struct {
     total_data_received : u64;
     total_packets_lost : u32;
     total_packets_sent : u32;
+    total_waiting_data : u32;
     needs_dispatch : bool;
     dispatched_commands : List;
     event_data : u32;
@@ -94,8 +95,12 @@ PEER_TIMEOUT_MAXIMUM        :: 30000;
 PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
 PEER_PING_INTERVAL           :: 500;
 
+DUMMY_COMMAND : Incoming_Command; 
+
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
+
+    print("Queueing outgoing command %\n", command.header.command & PROTOCOL_COMMAND_MASK); 
 
     outgoing_cmd.command = <<command;
     outgoing_cmd.fragment_offset = offset;
@@ -118,8 +123,8 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         outgoing_cmd.reliable_seq_number = peer.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = 0;
     } else if outgoing_cmd.command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE {
-        peer.outgoing_reliable_seq_number += 1;
         channel = *peer.channels[outgoing_cmd.command.header.channel_id];
+        channel.outgoing_reliable_seq_number += 1;
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = 0;
     } else if outgoing_cmd.command.header.command & PROTOCOL_FLAG_UNSEQUENCED {
@@ -188,8 +193,22 @@ peer_on_disconnect :: (peer: *Peer) {
 
 }
 
-peer_receive :: (peer: *Peer, channel_id: u16) -> *Packet {
-    log_error("TODO: peer_receive not implemented\n");
+peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
+    if list_empty(*peer.dispatched_commands) return null;
+
+    incoming_cmd := cast(*Incoming_Command)list_remove(list_begin(*peer.dispatched_commands));
+
+    if channel_id != null then <<channel_id = incoming_cmd.command.header.channel_id;
+
+    packet := incoming_cmd.packet;
+    packet.ref_count -= 1;
+
+    array_free(incoming_cmd.fragments);
+
+    free(incoming_cmd);
+    peer.total_waiting_data -= packet.data_length;
+
+    return packet;
 }
 
 peer_reset :: (peer: *Peer) {
@@ -264,3 +283,274 @@ peer_disconnect :: (peer: *Peer, data: u32) {
     log_error("TODO: peer_disconnect not implemented\n");
 }
 
+peer_send :: (peer: *Peer, channel_id: u8, packet: *Packet) -> int {
+    channel := *peer.channels[channel_id];
+
+    if peer.state != .CONNECTED || channel_id >= peer.channels.count || packet.data_length > peer.host.maximum_packet_size then return -1;
+
+    fragment_length :u16= cast(u16)(peer.mtu - size_of(Protocol_Header) - size_of(Protocol_Send_Fragment));
+
+    // @TODO implement checksum
+    //if peer.host.checksum
+
+    if packet.data_length > fragment_length {
+        fragment_count := (packet.data_length + fragment_length - 1) / fragment_length;
+
+        if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return -1;
+
+        command_number : u8;
+        start_seq_number : u16;
+
+        if packet.flags & (Packet_Flags.RELIABLE | .UNRELIABLE_FRAGMENT) == Packet_Flags.UNRELIABLE_FRAGMENT && 
+            channel.outgoing_unreliable_seq_number < 0xFFFF {
+
+            command_number = PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
+            start_seq_number = host_to_net_endian(channel.outgoing_unreliable_seq_number + 1);
+        } else {
+            command_number = cast(u8)(PROTOCOL_COMMAND_SEND_FRAGMENT | PROTOCOL_FLAG_ACKNOWLEDGE);
+            start_seq_number = host_to_net_endian(channel.outgoing_reliable_seq_number + 1);
+        }
+
+        fragments : List;
+
+        list_clear(*fragments);
+
+        fragment_offset :u32= 0;
+        fragment_number :u32= 0;
+
+        while fragment_offset < packet.data_length {
+            if packet.data_length - fragment_offset < fragment_length {
+                fragment_length = cast(u16)(packet.data_length - fragment_offset);
+            }
+
+            fragment := New(Outgoing_Command);
+
+            // @TODO handle alloc failure
+
+            fragment.fragment_offset = fragment_offset;
+            fragment.fragment_length = fragment_length;
+            fragment.packet = packet;
+            fragment.command.header.command = command_number;
+            fragment.command.header.channel_id = channel_id;
+
+            fragment.command.send_fragment.start_seq_number = start_seq_number;
+
+            fragment.command.send_fragment.data_length = host_to_net_endian(fragment_length);
+            fragment.command.send_fragment.fragment_count = host_to_net_endian(fragment_count);
+            fragment.command.send_fragment.fragment_number = host_to_net_endian(fragment_number);
+            fragment.command.send_fragment.total_length = host_to_net_endian(packet.data_length);
+            fragment.command.send_fragment.fragment_offset = host_to_net_endian(fragment_offset);
+            
+            list_insert(list_end(*fragments), fragment);
+
+            fragment_offset += fragment_length;
+            fragment_number += 1;
+        }
+
+        packet.ref_count += fragment_number;
+
+        while !list_empty(*fragments) {
+            fragment := cast(*Outgoing_Command)list_remove(list_begin(*fragments));
+            peer_setup_outgoing_command(peer, fragment);
+        }
+
+        return 0;
+    }
+
+    command : Protocol;
+
+    command.header.channel_id = channel_id;
+
+    if packet.flags & Packet_Flags.RELIABLE | .UNSEQUENCED == .UNSEQUENCED {
+        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_UNSEQUENCED | PROTOCOL_FLAG_UNSEQUENCED);
+        command.send_unsequenced.data_length = xx host_to_net_endian(packet.data_length);
+    } else if packet.flags & Packet_Flags.RELIABLE || channel.outgoing_unreliable_seq_number >= 0xFFFF {
+        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_RELIABLE | PROTOCOL_FLAG_ACKNOWLEDGE);
+        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+    } else {
+        command.header.command = PROTOCOL_COMMAND_SEND_UNRELIABLE;
+        command.send_reliable.data_length = xx host_to_net_endian(packet.data_length);
+    }
+
+    if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return -1;
+
+    return 0;
+}
+
+peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, data_length: u32, flags: Packet_Flags, fragment_count: u32) -> *Incoming_Command {
+    packet : *Packet;
+    channel := *peer.channels[command.header.channel_id];
+
+    // The original c version uses goto
+    // so this is a way to get around not having gotos in this language
+    do_error :: (discard: bool) #expand {
+        if discard {
+            if `fragment_count <= 0 {
+                if `packet != null && `packet.ref_count == 0 {
+                    packet_destroy(`packet);
+                }
+
+
+                `return *DUMMY_COMMAND;
+            }
+        } else {
+           if `packet != null && `packet.ref_count == 0 {
+                packet_destroy(`packet);
+            }
+
+            `return null;
+        }
+    }
+
+    if peer.state == .DISCONNECT_LATER do_error(true);
+
+    unreliable_seq_number : u32;
+    reliable_seq_number : u32;
+    reliable_window : u16;
+    current_window : u16;
+    current_cmd : *List_Node;
+
+    if command.header.command & PROTOCOL_COMMAND_MASK != PROTOCOL_COMMAND_SEND_UNSEQUENCED {
+        reliable_seq_number = command.header.reliable_seq_number;
+        reliable_window = cast(u16)(reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE);
+        current_window = channel.incoming_reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+
+        if reliable_seq_number < channel.incoming_reliable_seq_number {
+            reliable_window += PEER_RELIABLE_WINDOWS;
+        }
+
+        if reliable_window < current_window || reliable_window >= current_window + PEER_RELIABLE_WINDOWS - 1 then do_error(true);
+    }
+
+    if command.header.command & PROTOCOL_COMMAND_MASK == {
+        case PROTOCOL_COMMAND_SEND_FRAGMENT; #through;
+        case PROTOCOL_COMMAND_SEND_RELIABLE;
+            if reliable_seq_number == channel.incoming_reliable_seq_number do_error(true);
+
+            current_cmd = list_previous(list_end(*channel.incoming_reliable_commands));
+            while current_cmd != list_end(*channel.incoming_reliable_commands) {
+            
+                incoming_cmd := cast(*Incoming_Command)current_cmd;
+
+                if reliable_seq_number >= channel.incoming_reliable_seq_number {
+                    if incoming_cmd.reliable_seq_number < channel.incoming_reliable_seq_number continue;
+                } else if incoming_cmd.reliable_seq_number >= channel.incoming_reliable_seq_number {
+                    break;
+                }
+
+                if incoming_cmd.reliable_seq_number <= reliable_seq_number {
+                    if incoming_cmd.reliable_seq_number < reliable_seq_number break;
+                    do_error(true);
+                }
+                current_cmd = list_previous(current_cmd);
+            }
+        case PROTOCOL_COMMAND_SEND_UNRELIABLE; #through;
+        case PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
+            unreliable_seq_number = net_to_host_endian(command.send_unreliable.unreliable_seq_number);
+
+            if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_reliable_seq_number do_error(true);
+
+            current_cmd = list_previous(list_end(*channel.incoming_unreliable_commands));
+            while current_cmd != list_end(*channel.incoming_unreliable_commands) {
+
+                incoming_cmd := cast(*Incoming_Command)current_cmd;
+
+                if command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED continue;
+
+                if reliable_seq_number >= channel.incoming_reliable_seq_number {
+                    if incoming_cmd.reliable_seq_number < channel.incoming_reliable_seq_number {
+                        continue;
+                    }
+                } else if incoming_cmd.reliable_seq_number >= channel.incoming_reliable_seq_number {
+                    break;
+                }
+
+                if incoming_cmd.reliable_seq_number < reliable_seq_number break;
+                if incoming_cmd.reliable_seq_number > reliable_seq_number continue;
+
+                if incoming_cmd.unreliable_seq_number <= unreliable_seq_number {
+                    if incoming_cmd.unreliable_seq_number < unreliable_seq_number break;
+
+                    do_error(true);
+                }
+
+                current_cmd = list_previous(current_cmd);
+            }
+        case PROTOCOL_COMMAND_SEND_UNSEQUENCED;
+            current_cmd = list_end(*channel.incoming_unreliable_commands);
+        case;
+            do_error(true);
+    }
+
+    if peer.total_waiting_data >= peer.host.maximum_waiting_data do_error(false);
+
+    packet = packet_create(data, data_length, flags);
+    
+    incoming_cmd := New(Incoming_Command);
+
+    incoming_cmd.reliable_seq_number = command.header.reliable_seq_number;
+    incoming_cmd.unreliable_seq_number = cast(u16)(unreliable_seq_number & 0xFFFF);
+    incoming_cmd.command = <<command;
+    incoming_cmd.fragment_count = fragment_count;
+    incoming_cmd.fragments_remaining = fragment_count;
+    incoming_cmd.packet = packet;
+
+    if fragment_count > 0 {
+        if fragment_count <= PROTOCOL_MAX_FRAGMENT_COUNT {
+            incoming_cmd.fragments = NewArray((fragment_count + 31) / 32, u32);
+        }
+
+        memset(incoming_cmd.fragments.data, 0, (fragment_count + 31) / 32 * size_of(u32));
+    }
+
+    assert(packet != null);
+    packet.ref_count += 1;
+    peer.total_waiting_data += packet.data_length;
+
+    list_insert(list_next(current_cmd), incoming_cmd);
+
+    if command.header.command & PROTOCOL_COMMAND_MASK == {
+        case PROTOCOL_COMMAND_SEND_FRAGMENT; #through;
+        case PROTOCOL_COMMAND_SEND_RELIABLE; 
+            peer_dispatch_incoming_reliable_commands(peer, channel);
+        case;
+            peer_dispatch_incoming_unreliable_commands(peer, channel);
+    }
+
+    return incoming_cmd;
+}
+
+peer_dispatch_incoming_reliable_commands :: (peer: *Peer, channel: *Channel) {
+    current_cmd := list_begin(*channel.incoming_reliable_commands);
+
+    while current_cmd != list_end(*channel.incoming_reliable_commands) {
+        incoming_cmd := cast(*Incoming_Command)current_cmd;
+
+        if incoming_cmd.fragments_remaining > 0 || incoming_cmd.reliable_seq_number != cast(u16)(channel.incoming_reliable_seq_number + 1) break;
+
+        channel.incoming_reliable_seq_number = incoming_cmd.reliable_seq_number;
+
+        if incoming_cmd.fragment_count > 0 then channel.incoming_reliable_seq_number += cast(u16)(incoming_cmd.fragment_count - 1);
+
+        current_cmd = list_next(current_cmd);
+    }
+
+    if current_cmd == list_begin(*channel.incoming_reliable_commands) return;
+
+    channel.incoming_unreliable_seq_number = 0;
+
+    list_move(list_end(*peer.dispatched_commands), list_begin(*channel.incoming_reliable_commands), list_previous(current_cmd));
+
+    if !peer.needs_dispatch {
+        list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+        peer.needs_dispatch = true;
+    }
+
+    if !list_empty(*channel.incoming_unreliable_commands) {
+        peer_dispatch_incoming_unreliable_commands(peer, channel);
+    }
+}
+
+peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
+    log_error("TODO: peer_dispatch_incoming_unreliable_commands not implemented\n");
+}

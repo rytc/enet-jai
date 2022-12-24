@@ -8,6 +8,7 @@ PROTOCOL_MAX_MTU             :: 4096;
 PROTOCOL_MIN_MTU             :: 576;
 PROTOCOL_SESSION_SHIFT       :: 12;
 PROTOCOL_SESSION_MASK        :: 3 << 12;
+PROTOCOL_MAX_FRAGMENT_COUNT  :: 1024 * 1024;
 
 PROTOCOL_FLAG_ACKNOWLEDGE :u32: 1 << 7;
 PROTOCOL_FLAG_UNSEQUENCED :u32: 1 << 6;
@@ -340,7 +341,7 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> int {
             case .CONNECTED;
                 if list_empty(*peer.dispatched_commands) continue;
 
-                event.packet = peer_receive(peer, event.channel_id);
+                event.packet = peer_receive(peer, *event.channel_id);
                 if event.packet == null {
                     continue;
                 }
@@ -461,11 +462,8 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 }
 
 protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
-    cmd_index := host.command_count;
-    buffer_index := host.buffer_count;
-
-    cmd := *host.commands[cmd_index];
-    buffer := *host.buffers[buffer_index];
+    cmd := *host.commands[host.command_count];
+    buffer := *host.buffers[host.buffer_count];
 
     window_wrap := false;
     window_exceeded := true;
@@ -514,8 +512,8 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         cmd_size := PROTOCOL_COMMAND_SIZES[outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK];
 
         // @TODO :giant_if
-        if cmd_index >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer_index + 1 >= cast(u32)MAX_BUFFER_COUNT ||
+        if cmd - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
+            buffer - host.buffers.data + 1 >= cast(u32)MAX_BUFFER_COUNT ||
             peer.mtu - host.packet_size < cmd_size ||
             (outgoing_cmd.packet != null && cast(u16)(peer.mtu - host.packet_size) < cast(u16)(cmd_size + outgoing_cmd.fragment_length)) {
 
@@ -553,8 +551,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         <<cmd = outgoing_cmd.command;
 
         if outgoing_cmd.packet {
-            buffer_index += 1;
-            buffer := *host.buffers[buffer_index];
+            buffer += 1;
             buffer.data = outgoing_cmd.packet.data + outgoing_cmd.fragment_offset;
             buffer.length = outgoing_cmd.fragment_length;
             host.packet_size += outgoing_cmd.fragment_length;
@@ -697,6 +694,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
             case PROTOCOL_COMMAND_VERIFY_CONNECT; if protocol_handle_verify_connect(host, event, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_PING; if protocol_handle_ping(host, peer, command) { error = true; break; }
+            case PROTOCOL_COMMAND_SEND_RELIABLE; if protocol_handle_send_reliable(host, peer, command, *current_data) break;
             case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
         }
 
@@ -717,7 +715,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
                 case .ACKNOWLEDGING_DISCONNECT;
                     if command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_DISCONNECT peer_queue_acknowledgement(peer, command, sent_time);
                 case;
-                    print("Queueing acknowledgement\n");
                     peer_queue_acknowledgement(peer, command, sent_time);
             }
         }
@@ -1072,5 +1069,19 @@ protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
 
 protocol_notify_disconnect :: (host: *Host, peer: *Peer, event: *Event) {
     log_error("TODO: protocol_notify_disconnect not implemented\n");
+}
+
+protocol_handle_send_reliable :: (host : *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
+    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return -1;
+
+    data_length := net_to_host_endian(command.send_reliable.data_length);
+    <<current_data += data_length;
+
+    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return -1;
+
+    if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Reliable), data_length, .RELIABLE, 0) == null return -1;
+
+
+    return 0;
 }
 

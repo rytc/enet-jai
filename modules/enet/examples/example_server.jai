@@ -23,6 +23,11 @@ main :: () {
 
         while enet.host_service(host, *event, 5000) > 0 {
             if event.type == {
+                case .CONNECT;
+                    print("Connection successful!\n");
+                case .RECEIVE;
+                    msg := to_string(event.packet.data);
+                    print("We received a message! The message says \"%\"\n", msg); 
                 case;
                     print("Received event %\n", event.type);
             }

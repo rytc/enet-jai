@@ -104,6 +104,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
         list_clear(*peer.sent_reliable_commands);
         list_clear(*peer.sent_unreliable_commands);
         list_clear(*peer.acknowledgements);
+        list_clear(*peer.dispatched_commands);
 
         peer_reset(peer);
     }

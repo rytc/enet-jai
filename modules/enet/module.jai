@@ -74,6 +74,7 @@ deinitialize :: () {
     // No deinitialization needed for unix
 }
 
+
 packet_create :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
     return packet_create(xx data, xx size_of(T), flags);
 }
@@ -97,7 +98,7 @@ get_host_name_address :: (host: string) -> Address, bool {
 }
 
 
-create_packet :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIABLE) -> *Packet {
+packet_create :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIABLE) -> *Packet {
     packet : *Packet;
 
     // @TODO :alloc better allocation strategy?
@@ -166,6 +167,14 @@ list_next :: (list: *List) -> *List_Node #expand {
     return list.sentinel.next;
 }
 
+list_previous :: (list: *List) -> *List_Node #expand {
+    return list.sentinel.prev;
+}
+
+list_previous :: (list: *List_Node) -> *List_Node #expand {
+    return list.prev;
+}
+
 list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
     data.prev = position.prev;
     data.next = position;
@@ -174,6 +183,19 @@ list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
     position.prev = data;
 
     return <<data;
+}
+
+list_move :: (list: *List_Node, first: *List_Node, last: *List_Node) -> *List_Node {
+    first.prev.next = last.next;
+    last.next.prev = first.prev;
+
+    first.prev = list.prev;
+    last.next = list;
+
+    first.prev.next = first;
+    list.prev = last;
+
+    return first;
 }
 
 list_remove :: (node: *List_Node) -> *void {
@@ -195,8 +217,9 @@ list_empty :: (list: *List) -> bool {
     return  beg == en;
 }
 
+// Should match WSABUF
 Buffer :: struct {
-    length : s64;
+    length : u32;
     data : *void;
 }
 
@@ -213,6 +236,12 @@ Command :: struct {
 
 Incoming_Command :: struct {
     #as using base : Command;
+    reliable_seq_number : u16;
+    unreliable_seq_number : u16;
+    command : Protocol;
+    fragment_count : u32;
+    fragments_remaining : u32;
+    fragments : []u32;
 }
 
 Outgoing_Command :: struct {

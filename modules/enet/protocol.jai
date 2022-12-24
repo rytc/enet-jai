@@ -362,17 +362,16 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> int {
 }
 
 protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
-    cmd_index := host.command_count;
-    buffer_index := host.buffer_count;
-    command := *host.commands[cmd_index];
-    buffer := *host.buffers[buffer_index];
+    command := *host.commands[host.command_count];
+    buffer := *host.buffers[host.buffer_count];
 
     current_ack := list_begin(*peer.acknowledgements);
 
     while current_ack != list_end(*peer.acknowledgements) {
 
-        if cmd_index >= PROTOCOL_MAX_PACKET_COMMANDS ||
-        buffer_index >= xx MAX_BUFFER_COUNT ||
+        // @TODO :fix_loop_check
+        if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
+        buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
         peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) {
 
             host.continue_sending = true;
@@ -511,9 +510,9 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
 
         cmd_size := PROTOCOL_COMMAND_SIZES[outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK];
 
-        // @TODO :giant_if
+        // @TODO :fix_loop_check
         if cmd - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer - host.buffers.data + 1 >= cast(u32)MAX_BUFFER_COUNT ||
+            buffer - host.buffers.data + 1 >= cast(u32)(MAX_BUFFER_COUNT) ||
             peer.mtu - host.packet_size < cmd_size ||
             (outgoing_cmd.packet != null && cast(u16)(peer.mtu - host.packet_size) < cast(u16)(cmd_size + outgoing_cmd.fragment_length)) {
 
@@ -574,15 +573,91 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
 }
 
 protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) -> int {
-    log_error("TODO: protocol_send_unreliable_outgoing_commands is not implemented\n");
+    command := *host.commands[host.command_count];
+    buffer := *host.buffers[host.buffer_count];
+
+    current_cmd := list_begin(*peer.outgoing_unreliable_commands);
+    while current_cmd != list_end(*peer.outgoing_unreliable_commands) {
+        outgoing_cmd := cast(*Outgoing_Command)current_cmd;
+        cmd_size := PROTOCOL_COMMAND_SIZES[outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK];
+
+        // @TODO :fix_loop_check
+        if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
+            buffer + 1 - host.buffers.data >= MAX_BUFFER_COUNT ||
+            peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) ||
+            (outgoing_cmd.packet != null && peer.mtu - host.packet_size < cmd_size + outgoing_cmd.fragment_length) {
+
+            host.continue_sending = true;
+            break;
+        }
+
+        current_cmd = list_next(current_cmd);
+
+        if outgoing_cmd.packet != null && outgoing_cmd.fragment_offset == 0 {
+            peer.packet_throttle_counter += PEER_PACKET_THROTTLE_COUNTER;
+            peer.packet_throttle_counter %= PEER_PACKET_THROTTLE_SCALE;
+
+            if peer.packet_throttle_counter > peer.packet_throttle {
+                reliable_seq_number := outgoing_cmd.reliable_seq_number;
+                unreliable_seq_number := outgoing_cmd.unreliable_seq_number;
+
+                while true {
+                    outgoing_cmd.packet.ref_count -= 1;
+
+                    if outgoing_cmd.packet.ref_count == 0 packet_destroy(outgoing_cmd.packet);
+
+                    list_remove(outgoing_cmd);
+                    free(outgoing_cmd);
+
+                    if current_cmd == list_end(*peer.outgoing_unreliable_commands) then break;
+
+                    outgoing_cmd = cast(*Outgoing_Command)current_cmd;
+
+                    if outgoing_cmd.reliable_seq_number != reliable_seq_number || outgoing_cmd.unreliable_seq_number != unreliable_seq_number then break;
+
+                    current_cmd = list_next(current_cmd);
+                }
+
+                continue;
+            }
+        }
+
+        buffer.data = command;
+        buffer.length = cmd_size;
+        host.packet_size += buffer.length;
+        <<command = outgoing_cmd.command;
+        list_remove(outgoing_cmd);
+
+        if outgoing_cmd.packet != null {
+            buffer += 1;
+            buffer.data = outgoing_cmd.packet.data + outgoing_cmd.fragment_offset;
+            buffer.length = outgoing_cmd.fragment_length;
+            host.packet_size += buffer.length;
+            list_insert(list_end(*peer.sent_unreliable_commands), outgoing_cmd);
+        } else {
+            free(outgoing_cmd);
+        }
+
+        command += 1;
+        buffer += 1;
+    }
+
+    host.command_count = cast(u32)(command - host.commands.data);
+    host.buffer_count = cast(u32)(buffer - host.buffers.data);
+
+    if peer.state == .DISCONNECT_LATER &&
+        list_empty(*peer.outgoing_reliable_commands) &&
+        list_empty(*peer.outgoing_unreliable_commands) &&
+        list_empty(*peer.sent_reliable_commands) {
+
+        peer_disconnect(peer, peer.event_data);
+    }
 }
 
 protocol_remove_sent_unreliable_commands :: (peer: *Peer) -> int {
     while !list_empty(*peer.sent_unreliable_commands) {
         outgoing_cmd := cast(*Outgoing_Command)list_front(*peer.sent_unreliable_commands);
         list_remove(outgoing_cmd);
-
-        print("removing unreliable command!\n");
 
         if outgoing_cmd.packet != null {
             outgoing_cmd.packet.ref_count -= 1;
@@ -695,6 +770,8 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
             case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_PING; if protocol_handle_ping(host, peer, command) { error = true; break; }
             case PROTOCOL_COMMAND_SEND_RELIABLE; if protocol_handle_send_reliable(host, peer, command, *current_data) break;
+            case PROTOCOL_COMMAND_SEND_UNRELIABLE; if protocol_handle_send_unreliable(host, peer, command, *current_data) break;
+            // case PROTOCOL_COMMAND_SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) break; 
             case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
         }
 
@@ -1071,7 +1148,7 @@ protocol_notify_disconnect :: (host: *Host, peer: *Peer, event: *Event) {
     log_error("TODO: protocol_notify_disconnect not implemented\n");
 }
 
-protocol_handle_send_reliable :: (host : *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
+protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
     if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return -1;
 
     data_length := net_to_host_endian(command.send_reliable.data_length);
@@ -1083,5 +1160,20 @@ protocol_handle_send_reliable :: (host : *Host, peer: *Peer, command: *Protocol,
 
 
     return 0;
+}
+
+protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
+    log_error("TODO: protocol_handle_send_unreliable not implemented\n");
+}
+
+protocol_handle_send_unsequenced :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> int {
+    // if (command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) return -1;
+
+    // data_length := net_to_host_endian(command.send_unsequenced.data_length);
+    // <<current_data += data_length;
+    
+    // if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] retyrn -1;
+
+    // unsequenced_group := net_to_host_endian(command.send_unsequenced.unsequenced_group);
 }
 

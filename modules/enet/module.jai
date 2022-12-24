@@ -15,17 +15,6 @@ Address :: struct {
     sin6_scope_id : u16;
 }
 
-Channel :: struct {
-    outgoing_reliable_seq_number : u16;
-    outgoing_unreliable_seq_number : u16;
-    used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
-    reliable_windows : [PEER_RELIABLE_WINDOWS] u16;
-    incoming_reliable_seq_number : u16;
-    incoming_unreliable_seq_number : u16;
-    incoming_reliable_commands : List;
-    incoming_unreliable_commands : List;
-}
-
 Packet_Flags :: enum_flags u16 {
     RELIABLE;
     UNSEQUENCED;
@@ -40,6 +29,22 @@ Packet :: struct {
     data : *u8;
     data_length: u32;
     user_data : *Any;
+}
+
+Event_Type :: enum {
+    NONE;
+    CONNECT;
+    DISCONNECT;
+    RECEIVE;
+    DISCONNECT_TIMEOUT;
+}
+
+Event :: struct {
+    type : Event_Type;
+    peer : *Peer;
+    channel_id : u8;
+    data : u32;
+    packet : *Packet;
 }
 
 initialize :: () -> bool {
@@ -97,9 +102,10 @@ get_host_name_address :: (host: string) -> Address, bool {
     return address, success;
 }
 
-
-packet_create :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIABLE) -> *Packet {
+packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
     packet : *Packet;
+
+    assert(data_length >= 0 && data_length <= U32_MAX);
 
     // @TODO :alloc better allocation strategy?
     if flags & .NO_ALLOCATE {
@@ -108,11 +114,11 @@ packet_create :: (data : *void, data_length : u32, flags : Packet_Flags = .RELIA
     } else {
         packet = alloc(size_of(Packet) + data_length);
         packet.data = cast(*u8)(packet) + size_of(Packet);
-        memcpy(packet.data, data, data_length);
+        memcpy(packet.data, data, cast(u32)data_length);
     }
 
     packet.flags = flags;
-    packet.data_length = data_length;
+    packet.data_length = cast(u32)data_length;
 
     return packet;
 }
@@ -136,7 +142,6 @@ V6_NO_ADDR :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf
 } else {
     MAX_BUFFER_COUNT :: 1 + 2 * PROTOCOL_MAX_PACKET_COMMANDS; 
 }
-
 
 List_Node :: struct {
     prev : *List_Node;
@@ -217,6 +222,17 @@ list_empty :: (list: *List) -> bool {
     return  beg == en;
 }
 
+Channel :: struct {
+    outgoing_reliable_seq_number : u16;
+    outgoing_unreliable_seq_number : u16;
+    used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
+    reliable_windows : [PEER_RELIABLE_WINDOWS] u16;
+    incoming_reliable_seq_number : u16;
+    incoming_unreliable_seq_number : u16;
+    incoming_reliable_commands : List;
+    incoming_unreliable_commands : List;
+}
+
 // Should match WSABUF
 Buffer :: struct {
     length : u32;
@@ -255,22 +271,6 @@ Outgoing_Command :: struct {
     fragment_length : u16;
     send_attempts : u16;
     command : Protocol;
-}
-
-Event_Type :: enum {
-    NONE;
-    CONNECT;
-    DISCONNECT;
-    RECEIVE;
-    DISCONNECT_TIMEOUT;
-}
-
-Event :: struct {
-    type : Event_Type;
-    peer : *Peer;
-    channel_id : u8;
-    data : u32;
-    packet : *Packet;
 }
 
 random_seed :: () -> u64 {
@@ -369,6 +369,7 @@ net_to_host_endian :: (value: u32) -> u32 #expand {
 in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
     return memcmp(*a, *b, size_of(in6_addr)) == 0;
 }
+
 
 #scope_file
 #import "Math"; // U32_MAX

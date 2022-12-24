@@ -35,7 +35,7 @@ Host :: struct {
     dispatch_queue : List;
 }
 
-host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming_bandwidth: u32, outgoing_bandwidth: u32) -> *Host, bool {
+host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming_bandwidth: int, outgoing_bandwidth: int) -> *Host, bool {
     host : *Host;
 
     if peer_count < 0 || peer_count > PROTOCOL_MAX_PEER_ID {
@@ -79,9 +79,9 @@ host_create :: (address: *Address, peer_count: int, channel_limit: u32, incoming
     host.random_seed = (cast(u32)host) % U32_MAX;
     host.random_seed += xx random_seed(); 
     host.random_seed = (host.random_seed << 16) | (host.random_seed >> 16);
-    host.channel_limit = channel_limit;
-    host.incoming_bandwidth = incoming_bandwidth;
-    host.outgoing_bandwidth = outgoing_bandwidth;
+    host.channel_limit = cast(u32)channel_limit;
+    host.incoming_bandwidth = cast(u32)incoming_bandwidth;
+    host.outgoing_bandwidth = cast(u32)outgoing_bandwidth;
     host.mtu = HOST_DEFAULT_MTU;
     host.received_address.host = HOST_ANY;
     host.received_address.port = 0;
@@ -118,7 +118,7 @@ host_destroy :: (host: *Host) {
     free(host);
 }
 
-host_connect :: (host: *Host, address: Address, channel_count: u32, data: u32) -> *Peer {
+host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -> *Peer {
     current_peer : *Peer;
 
     for * host.peers {
@@ -130,6 +130,8 @@ host_connect :: (host: *Host, address: Address, channel_count: u32, data: u32) -
 
     // No available peers
     if current_peer == null return null;
+
+    assert(channel_count > 0 && channel_count < PROTOCOL_MAX_CHANNEL_COUNT);
 
     current_peer.channels = NewArray(channel_count, Channel);
     current_peer.state = .CONNECTING;
@@ -168,9 +170,9 @@ host_connect :: (host: *Host, address: Address, channel_count: u32, data: u32) -
     command.connect.outgoing_session_id          = current_peer.outgoing_session_id;
     command.connect.mtu                        = host_to_net_endian(current_peer.mtu);
     command.connect.window_size                 = host_to_net_endian(current_peer.window_size);
-    command.connect.channel_count               = host_to_net_endian(channel_count);
-    command.connect.incoming_bandwidth          = host_to_net_endian(host.incoming_bandwidth);
-    command.connect.outgoing_bandwidth          = host_to_net_endian(host.outgoing_bandwidth);
+    command.connect.channel_count               = host_to_net_endian(cast(u32)channel_count);
+    command.connect.incoming_bandwidth          = host_to_net_endian(cast(u32)host.incoming_bandwidth);
+    command.connect.outgoing_bandwidth          = host_to_net_endian(cast(u32)host.outgoing_bandwidth);
     command.connect.packet_throttle_interval     = host_to_net_endian(current_peer.packet_throttle_interval);
     command.connect.packet_throttle_acceleration = host_to_net_endian(current_peer.packet_throttle_acceleration);
     command.connect.packet_throttle_deceleration = host_to_net_endian(current_peer.packet_throttle_deceleration);

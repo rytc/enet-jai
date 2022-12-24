@@ -37,6 +37,7 @@ Peer :: struct {
     packet_throttle_acceleration : u32;
     packet_throttle_deceleration : u32;
     packet_throttle_epoch : s64; // :Time
+    packet_throttle_counter : u32;
     outgoing_reliable_seq_number : u16;
     outgoing_unsequenced_group : u16;
     outgoing_reliable_commands : List;
@@ -76,6 +77,122 @@ Peer :: struct {
     reliable_data_in_transit : u32;
 }
 
+peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
+    assert(channel_id > 0 && channel_id < PROTOCOL_MAX_CHANNEL_COUNT);
+
+    channel := *peer.channels[channel_id];
+
+    if peer.state != .CONNECTED || channel_id >= peer.channels.count || packet.data_length > peer.host.maximum_packet_size then return -1;
+
+    fragment_length :u16= cast(u16)(peer.mtu - size_of(Protocol_Header) - size_of(Protocol_Send_Fragment));
+
+    // @TODO implement checksum
+    //if peer.host.checksum
+
+    if packet.data_length > fragment_length {
+        fragment_count := (packet.data_length + fragment_length - 1) / fragment_length;
+
+        if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return -1;
+
+        command_number : u8;
+        start_seq_number : u16;
+
+        if packet.flags & (Packet_Flags.RELIABLE | .UNRELIABLE_FRAGMENT) == Packet_Flags.UNRELIABLE_FRAGMENT && 
+            channel.outgoing_unreliable_seq_number < 0xFFFF {
+
+            command_number = PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
+            start_seq_number = host_to_net_endian(channel.outgoing_unreliable_seq_number + 1);
+        } else {
+            command_number = cast(u8)(PROTOCOL_COMMAND_SEND_FRAGMENT | PROTOCOL_FLAG_ACKNOWLEDGE);
+            start_seq_number = host_to_net_endian(channel.outgoing_reliable_seq_number + 1);
+        }
+
+        fragments : List;
+
+        list_clear(*fragments);
+
+        fragment_offset :u32= 0;
+        fragment_number :u32= 0;
+
+        while fragment_offset < packet.data_length {
+            if packet.data_length - fragment_offset < fragment_length {
+                fragment_length = cast(u16)(packet.data_length - fragment_offset);
+            }
+
+            fragment := New(Outgoing_Command);
+
+            // @TODO handle alloc failure
+
+            fragment.fragment_offset = fragment_offset;
+            fragment.fragment_length = fragment_length;
+            fragment.packet = packet;
+            fragment.command.header.command = command_number;
+            fragment.command.header.channel_id = cast(u8)channel_id;
+
+            fragment.command.send_fragment.start_seq_number = start_seq_number;
+
+            fragment.command.send_fragment.data_length = host_to_net_endian(fragment_length);
+            fragment.command.send_fragment.fragment_count = host_to_net_endian(fragment_count);
+            fragment.command.send_fragment.fragment_number = host_to_net_endian(fragment_number);
+            fragment.command.send_fragment.total_length = host_to_net_endian(packet.data_length);
+            fragment.command.send_fragment.fragment_offset = host_to_net_endian(fragment_offset);
+            
+            list_insert(list_end(*fragments), fragment);
+
+            fragment_offset += fragment_length;
+            fragment_number += 1;
+        }
+
+        packet.ref_count += fragment_number;
+
+        while !list_empty(*fragments) {
+            fragment := cast(*Outgoing_Command)list_remove(list_begin(*fragments));
+            peer_setup_outgoing_command(peer, fragment);
+        }
+
+        return 0;
+    }
+
+    command : Protocol;
+
+    command.header.channel_id = cast(u8)channel_id;
+
+    if packet.flags & (Packet_Flags.RELIABLE | .UNSEQUENCED) == .UNSEQUENCED {
+        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_UNSEQUENCED | PROTOCOL_FLAG_UNSEQUENCED);
+        command.send_unsequenced.data_length = host_to_net_endian(cast(u16)packet.data_length);
+    } else if packet.flags & Packet_Flags.RELIABLE || channel.outgoing_unreliable_seq_number >= 0xFFFF {
+        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_RELIABLE | PROTOCOL_FLAG_ACKNOWLEDGE);
+        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+    } else {
+        command.header.command = PROTOCOL_COMMAND_SEND_UNRELIABLE;
+        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+    }
+
+    if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return -1;
+
+    return 0;
+}
+
+peer_reset :: (peer: *Peer) {
+    peer_on_disconnect(peer);
+
+    peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
+    peer.timeout_limit = PEER_TIMEOUT_LIMIT;
+    peer.timeout_minimum        = PEER_TIMEOUT_MINIMUM;
+    peer.timeout_maximum        = PEER_TIMEOUT_MAXIMUM;
+    peer.last_round_trip_time   = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.ping_interval          = PEER_PING_INTERVAL;
+    peer.mtu                    = peer.host.mtu;
+    peer.packet_throttle        = PEER_DEFAULT_PACKET_THROTTLE;
+    peer.packet_throttle_limit  = PEER_PACKET_THROTTLE_SCALE;
+    peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
+    peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
+    peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
+    
+}
+
 #scope_module
 
 PEER_WINDOW_SIZE_SCALE      :: 64 * 1024;
@@ -94,6 +211,7 @@ PEER_TIMEOUT_MINIMUM        :: 5000;
 PEER_TIMEOUT_MAXIMUM        :: 30000;
 PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
 PEER_PING_INTERVAL           :: 500;
+PEER_PACKET_THROTTLE_COUNTER :: 7;
 
 DUMMY_COMMAND : Incoming_Command; 
 
@@ -211,26 +329,6 @@ peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
     return packet;
 }
 
-peer_reset :: (peer: *Peer) {
-    peer_on_disconnect(peer);
-
-    peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
-    peer.timeout_limit = PEER_TIMEOUT_LIMIT;
-    peer.timeout_minimum        = PEER_TIMEOUT_MINIMUM;
-    peer.timeout_maximum        = PEER_TIMEOUT_MAXIMUM;
-    peer.last_round_trip_time   = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.ping_interval          = PEER_PING_INTERVAL;
-    peer.mtu                    = peer.host.mtu;
-    peer.packet_throttle        = PEER_DEFAULT_PACKET_THROTTLE;
-    peer.packet_throttle_limit  = PEER_PACKET_THROTTLE_SCALE;
-    peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
-    peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
-    peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
-    
-}
-
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
     if command.header.channel_id < peer.channels.count {
         channel := *peer.channels[command.header.channel_id];
@@ -281,100 +379,6 @@ peer_throttle :: (peer: *Peer, round_trip_time: s64) -> int {
 
 peer_disconnect :: (peer: *Peer, data: u32) {
     log_error("TODO: peer_disconnect not implemented\n");
-}
-
-peer_send :: (peer: *Peer, channel_id: u8, packet: *Packet) -> int {
-    channel := *peer.channels[channel_id];
-
-    if peer.state != .CONNECTED || channel_id >= peer.channels.count || packet.data_length > peer.host.maximum_packet_size then return -1;
-
-    fragment_length :u16= cast(u16)(peer.mtu - size_of(Protocol_Header) - size_of(Protocol_Send_Fragment));
-
-    // @TODO implement checksum
-    //if peer.host.checksum
-
-    if packet.data_length > fragment_length {
-        fragment_count := (packet.data_length + fragment_length - 1) / fragment_length;
-
-        if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return -1;
-
-        command_number : u8;
-        start_seq_number : u16;
-
-        if packet.flags & (Packet_Flags.RELIABLE | .UNRELIABLE_FRAGMENT) == Packet_Flags.UNRELIABLE_FRAGMENT && 
-            channel.outgoing_unreliable_seq_number < 0xFFFF {
-
-            command_number = PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
-            start_seq_number = host_to_net_endian(channel.outgoing_unreliable_seq_number + 1);
-        } else {
-            command_number = cast(u8)(PROTOCOL_COMMAND_SEND_FRAGMENT | PROTOCOL_FLAG_ACKNOWLEDGE);
-            start_seq_number = host_to_net_endian(channel.outgoing_reliable_seq_number + 1);
-        }
-
-        fragments : List;
-
-        list_clear(*fragments);
-
-        fragment_offset :u32= 0;
-        fragment_number :u32= 0;
-
-        while fragment_offset < packet.data_length {
-            if packet.data_length - fragment_offset < fragment_length {
-                fragment_length = cast(u16)(packet.data_length - fragment_offset);
-            }
-
-            fragment := New(Outgoing_Command);
-
-            // @TODO handle alloc failure
-
-            fragment.fragment_offset = fragment_offset;
-            fragment.fragment_length = fragment_length;
-            fragment.packet = packet;
-            fragment.command.header.command = command_number;
-            fragment.command.header.channel_id = channel_id;
-
-            fragment.command.send_fragment.start_seq_number = start_seq_number;
-
-            fragment.command.send_fragment.data_length = host_to_net_endian(fragment_length);
-            fragment.command.send_fragment.fragment_count = host_to_net_endian(fragment_count);
-            fragment.command.send_fragment.fragment_number = host_to_net_endian(fragment_number);
-            fragment.command.send_fragment.total_length = host_to_net_endian(packet.data_length);
-            fragment.command.send_fragment.fragment_offset = host_to_net_endian(fragment_offset);
-            
-            list_insert(list_end(*fragments), fragment);
-
-            fragment_offset += fragment_length;
-            fragment_number += 1;
-        }
-
-        packet.ref_count += fragment_number;
-
-        while !list_empty(*fragments) {
-            fragment := cast(*Outgoing_Command)list_remove(list_begin(*fragments));
-            peer_setup_outgoing_command(peer, fragment);
-        }
-
-        return 0;
-    }
-
-    command : Protocol;
-
-    command.header.channel_id = channel_id;
-
-    if packet.flags & Packet_Flags.RELIABLE | .UNSEQUENCED == .UNSEQUENCED {
-        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_UNSEQUENCED | PROTOCOL_FLAG_UNSEQUENCED);
-        command.send_unsequenced.data_length = xx host_to_net_endian(packet.data_length);
-    } else if packet.flags & Packet_Flags.RELIABLE || channel.outgoing_unreliable_seq_number >= 0xFFFF {
-        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_RELIABLE | PROTOCOL_FLAG_ACKNOWLEDGE);
-        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
-    } else {
-        command.header.command = PROTOCOL_COMMAND_SEND_UNRELIABLE;
-        command.send_reliable.data_length = xx host_to_net_endian(packet.data_length);
-    }
-
-    if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return -1;
-
-    return 0;
 }
 
 peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, data_length: u32, flags: Packet_Flags, fragment_count: u32) -> *Incoming_Command {

@@ -1,7 +1,13 @@
 
-Jai port of enet
+Jai port of the ENet reliable UDP networking library. Specifically this is of the zpl-c version that supports IPv6 and other features.
 
-- enet enhanced https://github.com/zpl-c/enet
-- enet original https://github.com/lsalzman/enet
-- enet site http://enet.bespin.org/
+### Current state
+
+This is still in rough shape and is not ready for production. It is currently still missing functionality and it could use a lot of work to make it Jai conformative.
+
+### links
+
+- ENet zpl-c fork https://github.com/zpl-c/enet
+- ENet original https://github.com/lsalzman/enet
+- ENet site http://enet.bespin.org/
 

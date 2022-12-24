@@ -1,8 +1,8 @@
-PROTOCOL_MAX_PEER_ID       :: 0xFFF;
-PROTOCOL_MAX_CHANNEL_COUNT :: 255;
-PROTOCOL_MIN_CHANNEL_COUNT :: 1;
-PROTOCOL_MAX_WINDOW_SIZE   :: 65536;
-PROTOCOL_MIN_WINDOW_SIZE   :: 4096;
+PROTOCOL_MAX_PEER_ID         :: 0xFFF;
+PROTOCOL_MAX_CHANNEL_COUNT   :: 255;
+PROTOCOL_MIN_CHANNEL_COUNT   :: 1;
+PROTOCOL_MAX_WINDOW_SIZE     :: 65536;
+PROTOCOL_MIN_WINDOW_SIZE     :: 4096;
 PROTOCOL_MAX_PACKET_COMMANDS :: 32;
 PROTOCOL_MAX_MTU             :: 4096;
 PROTOCOL_MIN_MTU             :: 576;
@@ -16,70 +16,97 @@ PROTOCOL_FLAG_COMPRESSED  :u32: 1 << 14;
 PROTOCOL_FLAG_SENT_TIME   :u32: 1 << 15;
 PROTOCOL_FLAG_MASK        :u32: PROTOCOL_FLAG_COMPRESSED | PROTOCOL_FLAG_SENT_TIME;
 
-// These get masked with the above flags, so no enum usage /sadge
-PROTOCOL_COMMAND_NONE            :: 0;
-PROTOCOL_COMMAND_ACKNOWLEDGE     :: 1;
-PROTOCOL_COMMAND_CONNECT         :: 2;
-PROTOCOL_COMMAND_VERIFY_CONNECT  :: 3;
-PROTOCOL_COMMAND_DISCONNECT      :: 4;
-PROTOCOL_COMMAND_PING            :: 5;
-PROTOCOL_COMMAND_SEND_RELIABLE   :: 6;
-PROTOCOL_COMMAND_SEND_UNRELIABLE :: 7;
-PROTOCOL_COMMAND_SEND_FRAGMENT   :: 8;
-PROTOCOL_COMMAND_SEND_UNSEQUENCED :: 9;
-PROTOCOL_COMMAND_BANDWIDTH_LIMIT  :: 10;
-PROTOCOL_COMMAND_THROTTLE_CONFIGURE :: 11;
+
+PROTOCOL_COMMAND_NONE                     :: 0;
+PROTOCOL_COMMAND_ACKNOWLEDGE              :: 1;
+PROTOCOL_COMMAND_CONNECT                  :: 2;
+PROTOCOL_COMMAND_VERIFY_CONNECT           :: 3;
+PROTOCOL_COMMAND_DISCONNECT               :: 4;
+PROTOCOL_COMMAND_PING                     :: 5;
+PROTOCOL_COMMAND_SEND_RELIABLE            :: 6;
+PROTOCOL_COMMAND_SEND_UNRELIABLE          :: 7;
+PROTOCOL_COMMAND_SEND_FRAGMENT            :: 8;
+PROTOCOL_COMMAND_SEND_UNSEQUENCED         :: 9;
+PROTOCOL_COMMAND_BANDWIDTH_LIMIT          :: 10;
+PROTOCOL_COMMAND_THROTTLE_CONFIGURE       :: 11;
 PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT :: 12;
-PROTOCOL_COMMAND_COUNT           :: 13;
-PROTOCOL_COMMAND_MASK            :: 0x0F;
+PROTOCOL_COMMAND_COUNT                    :: 13;
+PROTOCOL_COMMAND_MASK                     :: 0x0F;
+
+Protocol_Command :: enum u8 {
+    NONE                     :: 0;
+    ACKNOWLEDGE              :: 1;
+    CONNECT                  :: 2;
+    VERIFY_CONNECT           :: 3;
+    DISCONNECT               :: 4;
+    PING                     :: 5;
+    SEND_RELIABLE            :: 6;
+    SEND_UNRELIABLE          :: 7;
+    SEND_FRAGMENT            :: 8;
+    SEND_UNSEQUENCED         :: 9;
+    BANDWIDTH_LIMIT          :: 10;
+    THROTTLE_CONFIGURE       :: 11;
+    SEND_UNRELIABLE_FRAGMENT :: 12;
+}
 
 Protocol_Header :: struct {
-    peer_id : u16;
+    peer_id   : u16;
     sent_time : u16;
 }
 
 Protocol_Command_Header :: struct {
-    command : u8;
-    channel_id : u8;
+    command             : u8;
+    channel_id          : u8;
     reliable_seq_number : u16;
 }
 
 Protocol_Acknowledge :: struct {
     using header : Protocol_Command_Header;
+
     received_reliable_seq_number : u16;
-    received_sent_time : u16;
+    received_sent_time           : u16;
 }
 
 Protocol_Connect :: struct {
     using header : Protocol_Command_Header;
-    outgoing_peer_id : u16;
+
+    outgoing_peer_id    : u16;
     incoming_session_id : u8;
     outgoing_session_id : u8;
-    mtu : u32;
-    window_size : u32;
+    
+    mtu           : u32;
+    window_size   : u32;
     channel_count : u32;
+
     incoming_bandwidth : u32;
     outgoing_bandwidth : u32;
-    packet_throttle_interval : u32;
+
+    packet_throttle_interval     : u32;
     packet_throttle_acceleration : u32;
     packet_throttle_deceleration : u32;
+    
     connect_id : u32;
-    data : u32;
+    data       : u32;
 }
 
 Protocol_Verify_Connect :: struct {
     using header : Protocol_Command_Header;
-    outgoing_peer_id : u16;
+
+    outgoing_peer_id    : u16;
     incoming_session_id : u8;
     outgoing_session_id : u8;
-    mtu : u32;
-    window_size : u32;
+
+    mtu           : u32;
+    window_size   : u32;
     channel_count : u32;
+
     incoming_bandwidth : u32;
     outgoing_bandwidth : u32;
-    packet_throttle_interval : u32;
+
+    packet_throttle_interval     : u32;
     packet_throttle_acceleration : u32;
     packet_throttle_deceleration : u32;
+
     connect_id : u32;
 }
 
@@ -94,57 +121,62 @@ Protocol_Ping :: struct {
 
 Protocol_Send_Reliable :: struct {
     using header : Protocol_Command_Header;
-    data_length : u16;
+    data_length  : u16;
 }
 
 Protocol_Send_Unreliable :: struct {
     using header : Protocol_Command_Header;
+
     unreliable_seq_number : u16;
-    data_length : u16;
+    data_length           : u16;
 }
 
 Protocol_Send_Fragment :: struct {
     using header : Protocol_Command_Header;
+
     start_seq_number : u16;
-    data_length : u16;
-    fragment_count : u32;
-    fragment_number : u32;
-    total_length : u32;
-    fragment_offset : u32;
+    data_length      : u16;
+    fragment_count   : u32;
+    fragment_number  : u32;
+    total_length     : u32;
+    fragment_offset  : u32;
 }
 
 Protocol_Send_Unsequenced :: struct {
     using header : Protocol_Command_Header;
+
     unsequenced_group : u16;
-    data_length : u16;
+    data_length       : u16;
 }
 
 Protocol_Bandwidth_Limit :: struct {
     using header : Protocol_Command_Header;
+
     incoming_bandwidth : u32;
     outgoing_bandwidth : u32;
 }
 
 Protocol_Throttle_Configure :: struct {
     using header : Protocol_Command_Header;
-    packet_throttle_interval : u32;
+
+    packet_throttle_interval     : u32;
     packet_throttle_acceleration : u32;
     packet_throttle_deceleration : u32;
 }
 
 
 Protocol :: union {
-    header : Protocol_Command_Header;
-    acknowledge : Protocol_Acknowledge;
-    connect : Protocol_Connect;
-    verify_connect : Protocol_Verify_Connect;
-    disconnect : Protocol_Disconnect;
-    ping : Protocol_Ping;
-    send_reliable : Protocol_Send_Reliable;
-    send_unreliable : Protocol_Send_Unreliable;
-    send_unsequenced : Protocol_Send_Unsequenced;
-    send_fragment : Protocol_Send_Fragment;
-    bandwidth_limit : Protocol_Bandwidth_Limit;
+    header             : Protocol_Command_Header;
+    acknowledge        : Protocol_Acknowledge;
+    connect            : Protocol_Connect;
+    verify_connect     : Protocol_Verify_Connect;
+    disconnect         : Protocol_Disconnect;
+    ping               : Protocol_Ping;
+    send_reliable      : Protocol_Send_Reliable;
+    send_unreliable    : Protocol_Send_Unreliable;
+    send_unsequenced   : Protocol_Send_Unsequenced;
+    send_fragment      : Protocol_Send_Fragment;
+    bandwidth_limit    : Protocol_Bandwidth_Limit;
     throttle_configure : Protocol_Throttle_Configure;
 }
 
@@ -563,9 +595,8 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         buffer += 1;
     }
 
-    // host.command_count = cmd_index - host.command_count;
     host.command_count = cast(u32)(cmd - host.commands.data);
-    host.buffer_count = cast(u32)(buffer - host.buffers.data); // buffer_index - host.buffer_count;
+    host.buffer_count = cast(u32)(buffer - host.buffers.data);
 
     return can_ping;
 }

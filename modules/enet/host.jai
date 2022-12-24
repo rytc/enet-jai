@@ -8,30 +8,38 @@ Host :: struct {
     received_address : Address;
     random_seed : u32;
     channel_limit : u32;
-    incoming_bandwidth : u32;
-    outgoing_bandwidth : u32;
     mtu : u32;
     duplicate_peers : u32;
-    maximum_packet_size : u32;
-    maximum_waiting_data : u32;
+
     service_time_offset : Apollo_Time;
-    service_time : Apollo_Time;
+    service_time        : Apollo_Time;
+
+    incoming_bandwidth : u32;
+    outgoing_bandwidth : u32;
     bandwidth_throttle_epoch : s64;
     recalculate_bandwidth_limits : bool;
-    continue_sending : bool;
-    header_flags: u32;
+
     commands : [PROTOCOL_MAX_PACKET_COMMANDS]Protocol;
     command_count: u32;
+
+    header_flags: u32;
     buffers : [MAX_BUFFER_COUNT]Buffer;
     buffer_count : u32;
+
     total_sent_packets : u32;
     total_sent_data : u64;
+
+    maximum_packet_size : u32;
     packet_data : [2 * PROTOCOL_MAX_MTU]u8; // 2D array in c, need to manually offset by PROTOCOL_MAX_MTU
     packet_size : u32;
     total_received_packets  : u32;
+
     received_data : *u8;
     received_data_length : u32;
     total_received_data_length : u32;
+    maximum_waiting_data : u32;
+
+    continue_sending : bool;
     dispatch_queue : List;
 }
 
@@ -43,11 +51,8 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
         return host, false; 
     }
 
-    // @TODO Not sure if we should actually heap allocate this? It is a big struct...
     host = New(Host);
-
     host.peers = NewArray(peer_count, Peer);
-
     host.socket = socket_create();
 
     if host.socket != INVALID_SOCKET set_socket_options(host.socket, .IPV6_V6ONLY, 0);
@@ -87,7 +92,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
     host.received_address.port = 0;
     host.duplicate_peers = PROTOCOL_MAX_PEER_ID;
     host.maximum_packet_size = HOST_DEFAULT_MAX_PACKET_SIZE;
-    host.maximum_waiting_data = HOST_DEFAULT_MAX_WAITING_DATA; // @TODO these could probably be set on the struct?
+    host.maximum_waiting_data = HOST_DEFAULT_MAX_WAITING_DATA; 
     host.service_time_offset = current_time_monotonic();
 
     list_clear(*host.dispatch_queue);
@@ -163,30 +168,27 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     }
 
     command : Protocol;
-    command.header.command                     = cast(u8)(PROTOCOL_COMMAND_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE);
-    command.header.channel_id                   = 0xFF;
+    command.header.command                       = cast(u8)(PROTOCOL_COMMAND_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE);
+    command.header.channel_id                    = 0xFF;
     command.connect.outgoing_peer_id             = host_to_net_endian(current_peer.incoming_peer_id);
     command.connect.incoming_session_id          = current_peer.incoming_session_id;
     command.connect.outgoing_session_id          = current_peer.outgoing_session_id;
-    command.connect.mtu                        = host_to_net_endian(current_peer.mtu);
-    command.connect.window_size                 = host_to_net_endian(current_peer.window_size);
-    command.connect.channel_count               = host_to_net_endian(cast(u32)channel_count);
-    command.connect.incoming_bandwidth          = host_to_net_endian(cast(u32)host.incoming_bandwidth);
-    command.connect.outgoing_bandwidth          = host_to_net_endian(cast(u32)host.outgoing_bandwidth);
+    command.connect.mtu                          = host_to_net_endian(current_peer.mtu);
+    command.connect.window_size                  = host_to_net_endian(current_peer.window_size);
+    command.connect.channel_count                = host_to_net_endian(cast(u32)channel_count);
+    command.connect.incoming_bandwidth           = host_to_net_endian(cast(u32)host.incoming_bandwidth);
+    command.connect.outgoing_bandwidth           = host_to_net_endian(cast(u32)host.outgoing_bandwidth);
     command.connect.packet_throttle_interval     = host_to_net_endian(current_peer.packet_throttle_interval);
     command.connect.packet_throttle_acceleration = host_to_net_endian(current_peer.packet_throttle_acceleration);
     command.connect.packet_throttle_deceleration = host_to_net_endian(current_peer.packet_throttle_deceleration);
-    command.connect.connect_id                  = current_peer.connect_id;
-    command.connect.data                       = host_to_net_endian(data);
+    command.connect.connect_id                   = current_peer.connect_id;
+    command.connect.data                         = host_to_net_endian(data);
 
     peer_queue_outgoing_command(current_peer, *command, null, 0, 0);
 
     return current_peer;
 }
 
-// Intended to be called within a loop
-// If it's inside a game loop or event loop, then it should be called in that loop
-// for best performance
 host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
     wait_condition : Socket_Wait;
 
@@ -282,6 +284,13 @@ host_send_raw :: (host: *Host, address: *Address, data: *$T) {
 }
 
 #scope_module
+HOST_RECEIVE_BUFFER_SIZE          :: 256 * 1024;
+HOST_SEND_BUFFER_SIZE             :: 256 * 1024;
+HOST_DEFAULT_MTU                  :: 1400;
+HOST_DEFAULT_MAX_PACKET_SIZE      :: 32 * 1024 * 1024;
+HOST_DEFAULT_MAX_WAITING_DATA     :: 32 * 1024 * 1024;
+HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
+
 
 host_bandwidth_throttle :: (host: *Host) {
     current_time := current_time_monotonic();
@@ -412,14 +421,4 @@ host_bandwidth_throttle :: (host: *Host) {
     }
 }
 
-
-
-#scope_file
-
-HOST_RECEIVE_BUFFER_SIZE          :: 256 * 1024;
-HOST_SEND_BUFFER_SIZE             :: 256 * 1024;
-HOST_DEFAULT_MTU                  :: 1400;
-HOST_DEFAULT_MAX_PACKET_SIZE  :: 32 * 1024 * 1024;
-HOST_DEFAULT_MAX_WAITING_DATA :: 32 * 1024 * 1024;
-HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
 

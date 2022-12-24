@@ -12,7 +12,7 @@ main :: () {
     channel_count := 2;
 
     // Client is created by not binding to an address
-    client, success := enet.host_create(null, 4, channel_count, 0, 0);
+    client, success := enet.host_create(null, 1, channel_count, 0, 0);
 
     if !success { 
         print("Failed to create client\n");

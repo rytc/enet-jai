@@ -8,31 +8,31 @@ List :: struct {
     sentinel : List_Node;
 }
 
-list_begin :: (list: *List) -> *List_Node #expand {
+list_begin :: inline (list: *List) -> *List_Node {
     return list.sentinel.next;
 }
 
-list_front :: (list: *List) -> *void #expand {
+list_front :: inline (list: *List) -> *void {
     return list.sentinel.next;
 }
 
-list_end :: (list: *List) -> *List_Node #expand {
+list_end :: inline (list: *List) -> *List_Node {
     return *list.sentinel;
 }
 
-list_next :: (list: *List_Node) -> *List_Node #expand {
+list_next :: inline (list: *List_Node) -> *List_Node {
     return list.next;
 }
 
-list_next :: (list: *List) -> *List_Node #expand {
+list_next :: inline (list: *List) -> *List_Node {
     return list.sentinel.next;
 }
 
-list_previous :: (list: *List) -> *List_Node #expand {
+list_previous :: inline (list: *List) -> *List_Node {
     return list.sentinel.prev;
 }
 
-list_previous :: (list: *List_Node) -> *List_Node #expand {
+list_previous :: inline (list: *List_Node) -> *List_Node {
     return list.prev;
 }
 
@@ -77,15 +77,22 @@ list_empty :: (list: *List) -> bool {
     return  beg == en;
 }
 
-
 for_expansion :: (list: *List, body: Code, flags: For_Flags) #expand {
     `it := list_begin(list);
     `it_index := 0;
     while it != list_end(list) {
         defer it = list_next(it);
         defer it_index += 1;
-
         #insert body;
     }
 }
 
+reverse :: (list: *List, body: Code, flags: For_Flags) #expand {
+    `it := list_previous(list_end(list));
+    `it_index := 0;
+    while it != list_end(list) {
+        defer it = list_previous(it);
+        defer it_index += 1;
+        #insert body;
+    }
+}

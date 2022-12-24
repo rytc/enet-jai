@@ -446,9 +446,9 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
             if reliable_seq_number == channel.incoming_reliable_seq_number do_error(true);
 
             current_cmd = list_previous(list_end(*channel.incoming_reliable_commands));
-            while current_cmd != list_end(*channel.incoming_reliable_commands) {
-            
-                incoming_cmd := cast(*Incoming_Command)current_cmd;
+            for :reverse channel.incoming_reliable_commands {
+                incoming_cmd := cast(*Incoming_Command)it;
+                current_cmd = it;
 
                 if reliable_seq_number >= channel.incoming_reliable_seq_number {
                     if incoming_cmd.reliable_seq_number < channel.incoming_reliable_seq_number continue;
@@ -460,7 +460,6 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
                     if incoming_cmd.reliable_seq_number < reliable_seq_number break;
                     do_error(true);
                 }
-                current_cmd = list_previous(current_cmd);
             }
         case PROTOCOL_COMMAND_SEND_UNRELIABLE; #through;
         case PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
@@ -469,9 +468,9 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
             if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_unreliable_seq_number do_error(true);
 
             current_cmd = list_previous(list_end(*channel.incoming_unreliable_commands));
-            while current_cmd != list_end(*channel.incoming_unreliable_commands) {
-
-                incoming_cmd := cast(*Incoming_Command)current_cmd;
+            for :reverse channel.incoming_unreliable_commands {
+                incoming_cmd := cast(*Incoming_Command)it;
+                current_cmd = it;
 
                 if command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED continue;
 
@@ -491,8 +490,6 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
 
                     do_error(true);
                 }
-
-                current_cmd = list_previous(current_cmd);
             }
         case PROTOCOL_COMMAND_SEND_UNSEQUENCED;
             current_cmd = list_end(*channel.incoming_unreliable_commands);

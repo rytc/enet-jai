@@ -499,6 +499,8 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         if prev_cmd list_insert(list_end(*peer.sent_reliable_commands), list_remove(prev_cmd));
     }
 
+    defer remove_prev();
+
     for *peer.outgoing_reliable_commands {
         remove_prev();
         outgoing_cmd := cast(*Outgoing_Command)it;
@@ -584,10 +586,6 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     host.command_count = cast(u32)(cmd - host.commands.data);
     host.buffer_count = cast(u32)(buffer - host.buffers.data);
 
-    // If this is called via defer at the top, then the list is not modified
-    // There seems to be a compiler bug?? 
-    remove_prev();
-
     return can_ping;
 }
 
@@ -600,7 +598,6 @@ protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) -> int 
         outgoing_cmd := cast(*Outgoing_Command)current_cmd;
         cmd_size := PROTOCOL_COMMAND_SIZES[outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK];
 
-        // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
             buffer + 1 - host.buffers.data >= MAX_BUFFER_COUNT ||
             peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) ||
@@ -1072,33 +1069,23 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
 }
 
 protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) -> int {
-    current_cmd := list_begin(*peer.sent_reliable_commands);
     outgoing_cmd : *Outgoing_Command;
     was_sent := true;
 
-    while current_cmd != list_end(*peer.sent_reliable_commands) {
-        outgoing_cmd = cast(*Outgoing_Command)current_cmd;
-
+    for peer.sent_reliable_commands {
+        outgoing_cmd = cast(*Outgoing_Command)it;
         if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
-
-        current_cmd = list_next(current_cmd);
     }
 
-    if current_cmd == list_end(*peer.sent_reliable_commands) {
-        current_cmd = list_begin(*peer.outgoing_reliable_commands);
-        while current_cmd != list_end(*peer.outgoing_reliable_commands) {
-            
-            outgoing_cmd = cast(*Outgoing_Command)current_cmd;
+    if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.sent_reliable_commands) {
+        for *peer.outgoing_reliable_commands {
+            outgoing_cmd = cast(*Outgoing_Command)it;
 
             if outgoing_cmd.send_attempts < 1 then return PROTOCOL_COMMAND_NONE;
-
             if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
-
-            current_cmd = list_next(current_cmd);
         }
 
-        if current_cmd == list_end(*peer.outgoing_reliable_commands) then return PROTOCOL_COMMAND_NONE;
-
+        if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.outgoing_reliable_commands) then return PROTOCOL_COMMAND_NONE;
         was_sent = false;
     }
 

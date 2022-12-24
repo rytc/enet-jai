@@ -538,8 +538,9 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
 peer_dispatch_incoming_reliable_commands :: (peer: *Peer, channel: *Channel) {
     current_cmd := list_begin(*channel.incoming_reliable_commands);
 
-    while current_cmd != list_end(*channel.incoming_reliable_commands) {
-        incoming_cmd := cast(*Incoming_Command)current_cmd;
+    for channel.incoming_reliable_commands {
+        incoming_cmd := cast(*Incoming_Command)it;
+        current_cmd = it;
 
         if incoming_cmd.fragments_remaining > 0 || incoming_cmd.reliable_seq_number != cast(u16)(channel.incoming_reliable_seq_number + 1) break;
 
@@ -572,8 +573,8 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
     start_cmd := dropped_cmd;
     current_cmd := dropped_cmd;
 
+    // This can't be a for loop because we're modifying the iterator in the middle of the loop
     while current_cmd != list_end(*channel.incoming_unreliable_commands) {
-
         incoming_cmd := cast(*Incoming_Command)current_cmd;
 
         if incoming_cmd.command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED then {
@@ -625,7 +626,6 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
         }
 
         start_cmd = list_next(current_cmd);
-
         current_cmd = list_next(current_cmd);
     }
 

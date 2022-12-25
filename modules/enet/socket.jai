@@ -84,7 +84,7 @@ get_socket_address :: (socket: Socket, address: *Address) -> bool {
     return true;
 }
 
-socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
+socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result_Status {
     #if OS == .WINDOWS {
         read_set : fd_set;
         write_set : fd_set;
@@ -100,11 +100,11 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
 
         select_count = select(cast(s32)(socket + 1), *read_set, *write_set, null, *time);
 
-        if select_count < 0 then return -1;
+        if select_count < 0 then return .ERROR;
 
         <<condition = .NONE;
 
-        if select_count == 0 then return 0;
+        if select_count == 0 then return .NONE;
         if FD_ISSET(socket, *write_set) then <<condition |= .SEND;
         if FD_ISSET(socket, *read_set) then <<condition |= .RECEIVE;
 
@@ -124,20 +124,20 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> int {
             if errno() == EINTR && <<condition & .WAIT_INTERRUPT {
                 <<condition = .WAIT_INTERRUPT;
 
-                return 0;
+                return .NONE;
             }
 
-            return -1;
+            return .ERROR;
         }
 
         <<condition = .WAIT_NONE;
 
-        if poll_count == 0 then return 0;
+        if poll_count == 0 then return .NONE;
         if poll_socket.revents & POLLOUT then <<condition |= .WAIT_SEND;
         if pollSocket.revents & POLLIN then <<condition |= .WAIT_RECEIVE;
     }
 
-    return 0;
+    return .NONE;
 }
 
 socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> s32 {

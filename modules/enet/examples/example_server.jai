@@ -27,7 +27,7 @@ main :: () {
     while true {
         event : enet.Event;
 
-        while enet.host_service(host, *event, 0) > 0 {
+        while enet.host_service(host, *event, 0) == .SUCCESS {
             if event.type == {
                 case .CONNECT;
                     print("A client has connected!\n");

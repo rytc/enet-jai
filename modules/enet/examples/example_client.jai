@@ -39,7 +39,7 @@ main :: () {
     while running {
         event : enet.Event;
 
-        while enet.host_service(client, *event, 0) > 0 {
+        while enet.host_service(client, *event, 0) == .SUCCESS {
             if event.type == {
                 case .CONNECT;
                     print("Connected to server. Sending a secret message.\n");

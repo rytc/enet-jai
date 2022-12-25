@@ -143,6 +143,13 @@ V6_NO_ADDR  :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x
     MAX_BUFFER_COUNT :: 1 + 2 * PROTOCOL_MAX_PACKET_COMMANDS; 
 }
 
+Result_Status :: enum {
+    NONE;
+    SUCCESS;
+    ERROR;
+    FAILURE;
+}
+
 Channel :: struct {
     used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
     reliable_windows      : [PEER_RELIABLE_WINDOWS] u16;

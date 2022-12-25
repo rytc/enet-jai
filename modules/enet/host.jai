@@ -188,7 +188,9 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     return current_peer;
 }
 
-host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
+// timeout: milliseconds to wait for incoming packets. Zero means it won't wait and will return immediately
+// Returns SUCCESS if it handled an incoming command. There may be more commands to handle on SUCCESS
+host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
     wait_condition : Socket_Wait;
 
     if event {
@@ -198,11 +200,10 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
 
         dispatch_result := protocol_dispatch_incoming_commands(host, event);
         if dispatch_result == {
-            case 1; 
-                return 1;
+            case .SUCCESS; return .SUCCESS;
             case -1;
-                log_error("Error dispatching incoming packets\n");
-                return -1;
+                log_error("[enet] Error dispatching incoming packets\n");
+                return .ERROR;
         }
     }
 
@@ -213,14 +214,14 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
     while true {
         if service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
 
-        send_outgoing :: () -> int #expand {
+        send_outgoing :: () #expand {
             send_out_status := protocol_send_outgoing_commands(`host, `event, true);
             if send_out_status == {
-                case 1;
-                    `return 1;
-                case -1;
-                    log_error("Error sending outgoing packets\n");
-                    `return -1;
+                case .SUCCESS;
+                    `return .SUCCESS;
+                case .ERROR;
+                    log_error("[enet] Error sending outgoing packets\n");
+                    `return .ERROR;
             }
         }
 
@@ -228,34 +229,33 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
 
         receive_in_status := protocol_receive_incoming_commands(host, event);
         if receive_in_status == {
-            case 1;
-                return 1;
-            case -1;
-                log_error("Error receiving incoming packets\n");
-                return -1;
+            case .SUCCESS; return .SUCCESS;
+            case .ERROR;
+                log_error("[enet] Error receiving incoming packets\n");
+                return .ERROR;
         }
 
         send_outgoing();
 
         dispatch_incoming_status := protocol_dispatch_incoming_commands(host, event);
         if dispatch_incoming_status == {
-            case 1;
-                return 1;
-            case -1;
-                log_error("Error dispatching incoming commands\n");
-                return -1;
+            case .SUCCESS; return .SUCCESS;
+            case .ERROR;
+                log_error("[enet] Error dispatching incoming commands\n");
+                return .ERROR;
         }
 
-        if service_time >= timeout then return 0; 
+        if service_time >= timeout then return .NONE; 
 
-        while true {
+        // Wait `timeout` amount of time for incoming packets
+        while timeout > 0 {
             host.service_time = current_time_monotonic() - host.service_time_offset;
             service_time = to_milliseconds(host.service_time);
-            if service_time > timeout then return 0;
+            if service_time > timeout then return .NONE;
 
             wait_condition = Socket_Wait.RECEIVE & .INTERRUPT;
-            if socket_wait(host.socket, *wait_condition, service_time - timeout) != 0 {
-                return -1;
+            if socket_wait(host.socket, *wait_condition, service_time - timeout) == .ERROR {
+                return .ERROR;
             }
 
             if !(wait_condition & .INTERRUPT) then break;
@@ -264,8 +264,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> int {
         if !(wait_condition & .RECEIVE) break;
     }
 
-    return 0;
-
+    return .NONE;
 }
 
 host_send_raw :: (host: *Host, address: *Address, data: []u8) {

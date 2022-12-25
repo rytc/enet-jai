@@ -90,7 +90,7 @@ Peer :: struct {
     event_data : u32;
 }
 
-peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
+peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
     assert(channel_id >= 0 && channel_id < PROTOCOL_MAX_CHANNEL_COUNT);
 
     channel := *peer.channels[channel_id];
@@ -105,7 +105,7 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
     if packet.data_length > fragment_length {
         fragment_count := (packet.data_length + fragment_length - 1) / fragment_length;
 
-        if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return -1;
+        if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return .ERROR;
 
         command_number : Protocol_Command;
         start_seq_number : u16;
@@ -163,7 +163,7 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
             peer_setup_outgoing_command(peer, fragment);
         }
 
-        return 0;
+        return .NONE;
     }
 
     command : Protocol;
@@ -181,9 +181,9 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
         command.send_unreliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
     }
 
-    if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return -1;
+    if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return .ERROR;
 
-    return 0;
+    return .NONE;
 }
 
 peer_reset :: (peer: *Peer) {
@@ -408,7 +408,7 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
     return acknowledgement;
 }
 
-peer_throttle :: (peer: *Peer, round_trip_time: s64) -> int {
+peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
     if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
         peer.packet_throttle = peer.packet_throttle_limit;
     } else if round_trip_time < peer.last_round_trip_time {
@@ -418,7 +418,7 @@ peer_throttle :: (peer: *Peer, round_trip_time: s64) -> int {
             peer.packet_throttle = peer.packet_throttle_limit;
         }
 
-        return 1;
+        return .SUCCESS;
 
     } else if round_trip_time > peer.last_round_trip_time + 2 * peer.last_round_trip_time_variance {
         if peer.packet_throttle > peer.packet_throttle_deceleration {
@@ -427,10 +427,10 @@ peer_throttle :: (peer: *Peer, round_trip_time: s64) -> int {
             peer.packet_throttle = 0;
         }
 
-        return -1;
+        return .ERROR;
     }
 
-    return 0;
+    return .NONE;
 }
 
 peer_disconnect :: (peer: *Peer, data: u32) {

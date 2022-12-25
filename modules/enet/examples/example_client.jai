@@ -21,6 +21,8 @@ main :: () {
 
     defer enet.host_destroy(client);
 
+    running := true;
+
     // To get an address by domain name, use get_host_name_address("my.domain.co")
     address := enet.get_host_ip_address("127.0.0.1");
     address.port = 1234;
@@ -35,16 +37,21 @@ main :: () {
 
     send_msg := 0;
 
-    while true {
+    while running {
         event : enet.Event;
 
         while enet.host_service(client, *event, 0) > 0 {
             if event.type == {
                 case .CONNECT;
-                    print("!! Connected to server. Sending a secret message.\n");
+                    print("Connected to server. Sending a secret message.\n");
                     send_msg += 1;
+                case .DISCONNECT; #through;
+                case .DISCONNECT_TIMEOUT;
+                    print("Disconnected: %\n", event.type);
+                    running = false;
+                    break;
                 case;
-                    print("!! Received event %\n", event.type);
+                    print("Received event %\n", event.type);
             }
         }
 
@@ -58,7 +65,6 @@ main :: () {
 
         sleep_milliseconds(16);
     }
-
 }
 
 #scope_file

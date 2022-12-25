@@ -299,7 +299,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             peer.last_sent_time = service_time;
 
             sent_length := socket_send(host.socket, *peer.address, host.buffers, host.buffer_count);
-            print("sent packet of size %\n", sent_length);
+            // print("Sent packet of size %\n", sent_length);
             protocol_remove_sent_unreliable_commands(peer);
 
             if sent_length < 0 {
@@ -720,6 +720,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
     // @TODO :checksum support
     // if host.checksum != null header_size += size_of(u32);
+
     peer: *Peer;
     if peer_id == PROTOCOL_MAX_PEER_ID {
         peer = null;
@@ -740,9 +741,9 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
     }
 
     // @TODO :compression support
-    if flags & PROTOCOL_FLAG_COMPRESSED {
-        log_error("enet: compression is not yet supported\n");
-    }
+    // if flags & PROTOCOL_FLAG_COMPRESSED {
+    //     log_error("enet: compression is not yet supported\n");
+    // }
 
     // @TODO :checksum support
     // if host.checksum != null { }
@@ -756,7 +757,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
     }
 
     current_data := host.received_data + header_size;
-    error := false; // @TODO :refactor this isn't actually used/needed
 
     while current_data < host.received_data + host.received_data_length {
 
@@ -779,27 +779,23 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
         command.header.reliable_seq_number = net_to_host_endian(command.header.reliable_seq_number);
 
-        print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
+        // print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
+
         if command_number == {
-            case PROTOCOL_COMMAND_ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) error = true;
+            case PROTOCOL_COMMAND_ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) break;
             case PROTOCOL_COMMAND_CONNECT; 
-                if peer != null  {
-                    error = true;
-                }
+                if peer != null  continue;
                 peer = protocol_handle_connect(host, header, command);
-                if peer == null { error = true; break; }
-            case PROTOCOL_COMMAND_VERIFY_CONNECT; if protocol_handle_verify_connect(host, event, peer, command) { error = true; break; }
-            case PROTOCOL_COMMAND_DISCONNECT; if protocol_handle_disconnect(host, peer, command) { error = true; break; }
-            case PROTOCOL_COMMAND_PING; if protocol_handle_ping(host, peer, command) { error = true; break; }
-            case PROTOCOL_COMMAND_SEND_RELIABLE; if protocol_handle_send_reliable(host, peer, command, *current_data) break;
+                if peer == null break;
+            case PROTOCOL_COMMAND_VERIFY_CONNECT;  if protocol_handle_verify_connect(host, event, peer, command) break;
+            case PROTOCOL_COMMAND_DISCONNECT;      if protocol_handle_disconnect(host, peer, command) break;
+            case PROTOCOL_COMMAND_PING;            if protocol_handle_ping(host, peer, command) break;
+            case PROTOCOL_COMMAND_SEND_RELIABLE;   if protocol_handle_send_reliable(host, peer, command, *current_data) break;
             case PROTOCOL_COMMAND_SEND_UNRELIABLE; if protocol_handle_send_unreliable(host, peer, command, *current_data) break;
             // case PROTOCOL_COMMAND_SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) break; 
             case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
         }
 
-        if peer == null {
-            print("Peer is null. Command number %\n", command_number);
-        }
         assert(peer != null);
         if command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE != 0 {
             if !(flags & PROTOCOL_FLAG_SENT_TIME) break;

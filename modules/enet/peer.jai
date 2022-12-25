@@ -231,7 +231,7 @@ DUMMY_COMMAND : Incoming_Command;
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
 
-    print("Sending % to peer in:% out:%\n", cast(Protocol_Command)(command.header.command & PROTOCOL_COMMAND_MASK), peer.outgoing_peer_id, peer.incoming_peer_id ); 
+    // print("Sending % to peer in:% out:%\n", cast(Protocol_Command)(command.header.command & PROTOCOL_COMMAND_MASK), peer.outgoing_peer_id, peer.incoming_peer_id ); 
 
     outgoing_cmd.command = <<command;
     outgoing_cmd.fragment_offset = offset;

@@ -35,6 +35,7 @@ main :: () {
                     msg.count = event.packet.data_length;
                     msg.data = event.packet.data;
                     print("We received a message! The message says \"%\"\n", msg); 
+                    enet.packet_destroy(event.packet);
                 case;
                     print("Received event %\n", event.type);
             }
@@ -42,7 +43,6 @@ main :: () {
 
         sleep_milliseconds(16);
     }
-
 }
 
 #scope_file

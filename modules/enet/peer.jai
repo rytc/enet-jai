@@ -240,7 +240,6 @@ peer_reset_outgoing_commands :: (list: *List) {
         
         if outgoing_cmd.packet {
             outgoing_cmd.packet.ref_count -= 1;
-
             if outgoing_cmd.packet.ref_count == 0 packet_destroy(outgoing_cmd.packet);
         }
 

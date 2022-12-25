@@ -337,7 +337,7 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> int {
         host.total_received_data_length += xx received_length;
         host.total_received_packets += 1;
 
-        print("received packet of size %\n", received_length);
+        // print("received packet of size %\n", received_length);
 
         // @TODO
         // if host.intercept !== null { }

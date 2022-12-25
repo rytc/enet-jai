@@ -203,7 +203,53 @@ peer_reset :: (peer: *Peer) {
     peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
     peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
     peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
+
+    peer_reset_queues(peer);
+}
+
+peer_reset_queues :: (peer: *Peer) {
     
+    if peer.needs_dispatch {
+        list_remove(*peer.dispatch_list);
+        peer.needs_dispatch = false;
+    }
+
+    while !list_empty(*peer.acknowledgements) {
+        free(list_remove(list_begin(*peer.acknowledgements)));
+    }
+
+    peer_reset_outgoing_commands(*peer.sent_reliable_commands);
+    peer_reset_outgoing_commands(*peer.sent_unreliable_commands);
+    peer_reset_outgoing_commands(*peer.outgoing_reliable_commands);
+    peer_reset_outgoing_commands(*peer.outgoing_unreliable_commands);
+    peer_reset_incoming_commands(*peer.dispatched_commands);
+
+    if peer.channels.count > 0 {
+        for *channel: peer.channels {
+            peer_reset_incoming_commands(*channel.incoming_reliable_commands);
+            peer_reset_incoming_commands(*channel.incoming_unreliable_commands);
+        }
+
+        array_free(peer.channels);
+    }
+}
+
+peer_reset_outgoing_commands :: (list: *List) {
+    while !list_empty(list) {
+        outgoing_cmd := cast(*Outgoing_Command)list_remove(list_begin(list));
+        
+        if outgoing_cmd.packet {
+            outgoing_cmd.packet.ref_count -= 1;
+
+            if outgoing_cmd.packet.ref_count == 0 packet_destroy(outgoing_cmd.packet);
+        }
+
+        free(outgoing_cmd);
+    }
+}
+
+peer_reset_incoming_commands :: (list: *List) {
+    peer_remove_incoming_commands(list, list_begin(list), list_end(list));
 }
 
 #scope_module
@@ -322,7 +368,6 @@ peer_on_disconnect :: (peer: *Peer) {
 
         peer.host.connected_peers -= 1;
     }
-
 }
 
 peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {

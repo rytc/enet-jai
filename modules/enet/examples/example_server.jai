@@ -23,6 +23,7 @@ main :: () {
 
     defer enet.host_destroy(host);
 
+    print("Server started...\n");
     while true {
         event : enet.Event;
 
@@ -36,6 +37,9 @@ main :: () {
                     msg.data = event.packet.data;
                     print("We received a message! The message says \"%\"\n", msg); 
                     enet.packet_destroy(event.packet);
+                case .DISCONNECT; #through;
+                case .DISCONNECT_TIMEOUT; 
+                    print("A client has disconnected.\n");
                 case;
                     print("Received event %\n", event.type);
             }

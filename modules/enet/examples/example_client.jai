@@ -1,8 +1,6 @@
 
-enet :: #import "enet";
 
 main :: () {
-
     if !enet.initialize() {
         print("Failed to initialize enet\n");
         return;
@@ -24,9 +22,10 @@ main :: () {
     running := true;
 
     // To get an address by domain name, use get_host_name_address("my.domain.co")
-    address := enet.get_host_ip_address("127.0.0.1");
-    address.port = 1234;
+    address := enet.get_host_ip_address(SERVER_ADDRESS);
+    address.port = SERVER_PORT;
 
+    print("Connecting to server %:%\n", SERVER_ADDRESS, SERVER_PORT);
     peer := enet.host_connect(client, *address, channel_count, 0); 
 
     msg := "The fox jumped over the lazy dog";
@@ -69,4 +68,8 @@ main :: () {
 
 #scope_file
 #import "Basic";
+enet :: #import "enet";
+
+SERVER_ADDRESS :: "127.0.0.1";
+SERVER_PORT    :: 1234;
 

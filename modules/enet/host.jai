@@ -167,7 +167,7 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     }
 
     command : Protocol;
-    command.header.command                       = cast(u8)(PROTOCOL_COMMAND_CONNECT | PROTOCOL_FLAG_ACKNOWLEDGE);
+    command.header.command                       = Protocol_Command.CONNECT | .FLAG_ACKNOWLEDGE;
     command.header.channel_id                    = 0xFF;
     command.connect.outgoing_peer_id             = host_to_net_endian(current_peer.incoming_peer_id);
     command.connect.incoming_session_id          = current_peer.incoming_session_id;
@@ -405,7 +405,7 @@ host_bandwidth_throttle :: (host: *Host) {
             if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER then continue;
 
             command : Protocol;
-            command.header.command = cast(u8)(PROTOCOL_COMMAND_BANDWIDTH_LIMIT | PROTOCOL_FLAG_ACKNOWLEDGE);
+            command.header.command = Protocol_Command.BANDWIDTH_LIMIT | .FLAG_ACKNOWLEDGE;
             command.header.channel_id = 0xFF;
             command.bandwidth_limit.outgoing_bandwidth = host_to_net_endian(host.outgoing_bandwidth);
 

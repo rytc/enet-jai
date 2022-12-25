@@ -107,16 +107,16 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
 
         if fragment_count > PROTOCOL_MAX_FRAGMENT_COUNT return -1;
 
-        command_number : u8;
+        command_number : Protocol_Command;
         start_seq_number : u16;
 
         if packet.flags & (Packet_Flags.RELIABLE | .UNRELIABLE_FRAGMENT) == Packet_Flags.UNRELIABLE_FRAGMENT && 
             channel.outgoing_unreliable_seq_number < 0xFFFF {
 
-            command_number = PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
+            command_number = .SEND_UNRELIABLE_FRAGMENT;
             start_seq_number = host_to_net_endian(channel.outgoing_unreliable_seq_number + 1);
         } else {
-            command_number = cast(u8)(PROTOCOL_COMMAND_SEND_FRAGMENT | PROTOCOL_FLAG_ACKNOWLEDGE);
+            command_number = .SEND_FRAGMENT_ACKNOWLEDGE;
             start_seq_number = host_to_net_endian(channel.outgoing_reliable_seq_number + 1);
         }
 
@@ -171,13 +171,13 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> int {
     command.header.channel_id = cast(u8)channel_id;
 
     if packet.flags & (Packet_Flags.RELIABLE | .UNSEQUENCED) == .UNSEQUENCED {
-        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_UNSEQUENCED | PROTOCOL_FLAG_UNSEQUENCED);
+        command.header.command = Protocol_Command.SEND_UNSEQUENCED | .FLAG_UNSEQUENCED;
         command.send_unsequenced.data_length = host_to_net_endian(cast(u16)packet.data_length);
     } else if packet.flags & Packet_Flags.RELIABLE || channel.outgoing_unreliable_seq_number >= 0xFFFF {
-        command.header.command = cast(u8)(PROTOCOL_COMMAND_SEND_RELIABLE | PROTOCOL_FLAG_ACKNOWLEDGE);
+        command.header.command = .SEND_RELIABLE_ACKNOWLEDGE;
         command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
     } else {
-        command.header.command = PROTOCOL_COMMAND_SEND_UNRELIABLE;
+        command.header.command = .SEND_UNRELIABLE;
         command.send_unreliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
     }
 
@@ -298,12 +298,12 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         peer.outgoing_reliable_seq_number += 1;
         outgoing_cmd.reliable_seq_number = peer.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = 0;
-    } else if outgoing_cmd.command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE {
+    } else if outgoing_cmd.command.header.command & Protocol_Command.FLAG_ACKNOWLEDGE {
         channel = *peer.channels[outgoing_cmd.command.header.channel_id];
         channel.outgoing_reliable_seq_number += 1;
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = 0;
-    } else if outgoing_cmd.command.header.command & PROTOCOL_FLAG_UNSEQUENCED {
+    } else if outgoing_cmd.command.header.command & Protocol_Command.FLAG_UNSEQUENCED {
         peer.outgoing_unsequenced_group += 1;
         outgoing_cmd.reliable_seq_number = 0;
         outgoing_cmd.unreliable_seq_number = 0;
@@ -311,7 +311,6 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         channel = *peer.channels[outgoing_cmd.command.header.channel_id];
 
         if outgoing_cmd.fragment_offset == 0 channel.outgoing_unreliable_seq_number += 1;
-
 
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = channel.outgoing_unreliable_seq_number;
@@ -323,15 +322,14 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     outgoing_cmd.round_trip_timeout_limit = 0;
     outgoing_cmd.command.header.reliable_seq_number = host_to_net_endian(outgoing_cmd.reliable_seq_number);
 
-
-    if outgoing_cmd.command.header.command & PROTOCOL_COMMAND_MASK == {
-        case PROTOCOL_COMMAND_SEND_UNRELIABLE;
+    if outgoing_cmd.command.header.command & .MASK == {
+        case .SEND_UNRELIABLE;
             outgoing_cmd.command.send_unreliable.unreliable_seq_number = host_to_net_endian(outgoing_cmd.unreliable_seq_number);
-        case PROTOCOL_COMMAND_SEND_UNSEQUENCED;
+        case .SEND_UNSEQUENCED;
             outgoing_cmd.command.send_unsequenced.unsequenced_group = host_to_net_endian(peer.outgoing_unsequenced_group);
     }    
 
-    if outgoing_cmd.command.header.command & PROTOCOL_FLAG_ACKNOWLEDGE {
+    if outgoing_cmd.command.header.command & .FLAG_ACKNOWLEDGE {
         list_insert(list_end(*peer.outgoing_reliable_commands), outgoing_cmd);
     } else {
         list_insert(list_end(*peer.outgoing_unreliable_commands), outgoing_cmd);
@@ -343,7 +341,7 @@ peer_ping :: (peer: *Peer) {
 
     if peer.state != .CONNECTED then return;
 
-    command.header.command = cast(u8)(PROTOCOL_COMMAND_PING | PROTOCOL_FLAG_ACKNOWLEDGE);
+    command.header.command = Protocol_Command.PING | .FLAG_ACKNOWLEDGE;
     command.header.channel_id = 0xFF;
 
     peer_queue_outgoing_command(peer, *command, null, 0, 0);
@@ -472,7 +470,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
     current_window : u16;
     current_cmd : *List_Node;
 
-    if command.header.command & PROTOCOL_COMMAND_MASK != PROTOCOL_COMMAND_SEND_UNSEQUENCED {
+    if command.header.command != .SEND_UNSEQUENCED {
         reliable_seq_number = command.header.reliable_seq_number;
         reliable_window = cast(u16)(reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE);
         current_window = channel.incoming_reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
@@ -484,9 +482,9 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
         if reliable_window < current_window || reliable_window >= current_window + PEER_RELIABLE_WINDOWS - 1 then do_error(true);
     }
 
-    if command.header.command & PROTOCOL_COMMAND_MASK == {
-        case PROTOCOL_COMMAND_SEND_FRAGMENT; #through;
-        case PROTOCOL_COMMAND_SEND_RELIABLE;
+    if command.header.command & .MASK == {
+        case .SEND_FRAGMENT; #through;
+        case .SEND_RELIABLE;
             if reliable_seq_number == channel.incoming_reliable_seq_number do_error(true);
 
             current_cmd = list_previous(list_end(*channel.incoming_reliable_commands));
@@ -505,8 +503,8 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
                     do_error(true);
                 }
             }
-        case PROTOCOL_COMMAND_SEND_UNRELIABLE; #through;
-        case PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT;
+        case .SEND_UNRELIABLE; #through;
+        case .SEND_UNRELIABLE_FRAGMENT;
             unreliable_seq_number = net_to_host_endian(command.send_unreliable.unreliable_seq_number);
 
             if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_unreliable_seq_number do_error(true);
@@ -516,7 +514,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
                 incoming_cmd := cast(*Incoming_Command)it;
                 current_cmd = it;
 
-                if command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED continue;
+                if command.header.command == .SEND_UNSEQUENCED continue;
 
                 if reliable_seq_number >= channel.incoming_reliable_seq_number {
                     if incoming_cmd.reliable_seq_number < channel.incoming_reliable_seq_number {
@@ -535,7 +533,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
                     do_error(true);
                 }
             }
-        case PROTOCOL_COMMAND_SEND_UNSEQUENCED;
+        case .SEND_UNSEQUENCED;
             current_cmd = list_end(*channel.incoming_unreliable_commands);
         case;
             do_error(true);
@@ -568,9 +566,11 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
 
     list_insert(list_next(current_cmd), incoming_cmd);
 
-    if command.header.command & PROTOCOL_COMMAND_MASK == {
-        case PROTOCOL_COMMAND_SEND_FRAGMENT; #through;
-        case PROTOCOL_COMMAND_SEND_RELIABLE; 
+    if command.header.command == {
+        case .SEND_RELIABLE_ACKNOWLEDGE; #through;
+        case .SEND_RELIABLE_UNSEQUENCED; #through;
+        case .SEND_FRAGMENT; #through;
+        case .SEND_RELIABLE; 
             peer_dispatch_incoming_reliable_commands(peer, channel);
         case;
             peer_dispatch_incoming_unreliable_commands(peer, channel);
@@ -621,7 +621,7 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
     while current_cmd != list_end(*channel.incoming_unreliable_commands) {
         incoming_cmd := cast(*Incoming_Command)current_cmd;
 
-        if incoming_cmd.command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_SEND_UNSEQUENCED then {
+        if incoming_cmd.command.header.command == .SEND_UNSEQUENCED then {
             current_cmd = list_next(current_cmd);
             continue;
         }

@@ -144,14 +144,17 @@ V6_NO_ADDR  :: in6_addr.{.{.[ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x
 }
 
 Channel :: struct {
-    outgoing_reliable_seq_number : u16;
-    outgoing_unreliable_seq_number : u16;
     used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
-    reliable_windows : [PEER_RELIABLE_WINDOWS] u16;
+    reliable_windows      : [PEER_RELIABLE_WINDOWS] u16;
+
+    outgoing_reliable_seq_number   : u16;
+    outgoing_unreliable_seq_number : u16;
+
     incoming_reliable_seq_number : u16;
+    incoming_reliable_commands   : List;
+
     incoming_unreliable_seq_number : u16;
-    incoming_reliable_commands : List;
-    incoming_unreliable_commands : List;
+    incoming_unreliable_commands   : List;
 }
 
 // Should match WSABUF

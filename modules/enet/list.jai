@@ -81,9 +81,10 @@ for_expansion :: (list: *List, body: Code, flags: For_Flags) #expand {
     `it := list_begin(list);
     `it_index := 0;
     while it != list_end(list) {
+        defer it = list_next(it);
+        defer it_index += 1;
+
         #insert body;
-        it = list_next(it);
-        it_index += 1;
     }
 }
 
@@ -91,9 +92,8 @@ reverse :: (list: *List, body: Code, flags: For_Flags) #expand {
     `it := list_previous(list_end(list));
     `it_index := 0;
     while it != list_end(list) {
+        defer it = list_previous(it);
+        defer it_index += 1;
         #insert body;
-        it = list_previous(it);
-        it_index += 1;
-
     }
 }

@@ -397,8 +397,19 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
     command := *host.commands[host.command_count];
     buffer := *host.buffers[host.buffer_count];
 
-    for current_ack: *peer.acknowledgements {
+    // Need to remove and free after the iteration
+    prev_cmd : *List_Node;
+    remove_and_free_prev :: () #expand {
+        if prev_cmd {
+            list_remove(prev_cmd);
+            free(prev_cmd);
+        }
+    }
+    defer remove_and_free_prev();
 
+    for current_ack: peer.acknowledgements {
+        remove_and_free_prev();
+            
         // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
         buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
@@ -407,7 +418,6 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
             host.continue_sending = true;
             break;
         }
-
 
         ack := cast(*Acknowledgement)current_ack;
 
@@ -425,8 +435,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 
         if ack.command.header.command & PROTOCOL_COMMAND_MASK == PROTOCOL_COMMAND_DISCONNECT then protocol_dispatch_state(host, peer, .ZOMBIE);
 
-        list_remove(ack);
-        free(ack);
+        prev_cmd = ack;
 
         command += 1;
         buffer += 1;
@@ -439,9 +448,11 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 
     insert_pos := list_begin(*peer.outgoing_reliable_commands);
+    current_cmd := list_begin(*peer.sent_reliable_commands);
 
-    for *peer.sent_reliable_commands {
-        outgoing_cmd := cast(*Outgoing_Command)it;
+    while current_cmd != list_end(*peer.sent_reliable_commands) {
+        outgoing_cmd := cast(*Outgoing_Command)current_cmd;
+        current_cmd = list_next(current_cmd);
 
         // :Time
         service_time := to_milliseconds(host.service_time);
@@ -477,8 +488,8 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> int {
 
         list_insert(insert_pos, list_remove(outgoing_cmd));
 
-        if it_index == 0 && !list_empty(*peer.sent_reliable_commands) {
-            outgoing_cmd = cast(*Outgoing_Command)it;
+        if current_cmd == list_begin(*peer.sent_reliable_commands) && !list_empty(*peer.sent_reliable_commands) {
+            outgoing_cmd = cast(*Outgoing_Command)current_cmd;
             peer.next_timeout = outgoing_cmd.sent_time + outgoing_cmd.round_trip_timeout;
         }
     }
@@ -494,16 +505,10 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     window_exceeded := true;
     can_ping := true;
 
-    prev_cmd : * List_Node = null;
-    remove_prev :: () #expand {
-        if prev_cmd list_insert(list_end(*peer.sent_reliable_commands), list_remove(prev_cmd));
-    }
+    current_cmd := list_begin(*peer.outgoing_reliable_commands);
 
-    defer remove_prev();
-
-    for *peer.outgoing_reliable_commands {
-        remove_prev();
-        outgoing_cmd := cast(*Outgoing_Command)it;
+    while current_cmd != list_end(*peer.outgoing_reliable_commands) {
+        outgoing_cmd := cast(*Outgoing_Command)current_cmd;
 
         channel := ifx outgoing_cmd.command.header.channel_id < peer.channels.count then *peer.channels[outgoing_cmd.command.header.channel_id] else cast(*Channel)null;
         reliable_window := outgoing_cmd.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
@@ -556,7 +561,8 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         // :Time
         if list_empty(*peer.sent_reliable_commands) then peer.next_timeout = to_milliseconds(host.service_time) + outgoing_cmd.round_trip_timeout;
 
-        prev_cmd = it;
+        current_cmd = list_next(current_cmd);
+        list_insert(list_end(*peer.sent_reliable_commands), list_remove(outgoing_cmd));
 
         outgoing_cmd.sent_time = cast(u32)to_milliseconds(host.service_time);
 
@@ -773,7 +779,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> int {
 
         command.header.reliable_seq_number = net_to_host_endian(command.header.reliable_seq_number);
 
-        print("incoming command %\n", command_number);
+        print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
         if command_number == {
             case PROTOCOL_COMMAND_ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) error = true;
             case PROTOCOL_COMMAND_CONNECT; 

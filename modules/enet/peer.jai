@@ -223,7 +223,7 @@ PEER_TIMEOUT_LIMIT          :: 32;
 PEER_TIMEOUT_MINIMUM        :: 5000;
 PEER_TIMEOUT_MAXIMUM        :: 30000;
 PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
-PEER_PING_INTERVAL           :: 500;
+PEER_PING_INTERVAL           :: 800;
 PEER_PACKET_THROTTLE_COUNTER :: 7;
 
 DUMMY_COMMAND : Incoming_Command; 
@@ -231,7 +231,7 @@ DUMMY_COMMAND : Incoming_Command;
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
 
-    print("Queueing outgoing command %\n", command.header.command & PROTOCOL_COMMAND_MASK); 
+    print("Sending % to peer in:% out:%\n", cast(Protocol_Command)(command.header.command & PROTOCOL_COMMAND_MASK), peer.outgoing_peer_id, peer.incoming_peer_id ); 
 
     outgoing_cmd.command = <<command;
     outgoing_cmd.fragment_offset = offset;
@@ -643,6 +643,24 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
     peer_remove_incoming_commands(*channel.incoming_unreliable_commands, list_begin(*channel.incoming_unreliable_commands), dropped_cmd);
 }
 
-peer_remove_incoming_commands :: (list: *List, node: *List_Node, node2: *List_Node) {
-    log_error("TODO peer_remove_incoming_commands not implemented\n");
+peer_remove_incoming_commands :: (list: *List, start_cmd: *List_Node, end_cmd: *List_Node) {
+    current_cmd := start_cmd;
+    while current_cmd != end_cmd {
+        incoming_cmd := cast(*Incoming_Command)current_cmd;
+
+        current_cmd = list_next(current_cmd);
+        list_remove(incoming_cmd);
+
+        if incoming_cmd.packet != null {
+            incoming_cmd.packet.ref_count -= 1;
+
+            if incoming_cmd.packet.ref_count == 0 then packet_destroy(incoming_cmd.packet);
+        }
+
+        if incoming_cmd.fragments.count > 0 then array_free(incoming_cmd.fragments);
+
+        free(incoming_cmd);
+    }
 }
+
+

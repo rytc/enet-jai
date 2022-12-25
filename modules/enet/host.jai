@@ -99,7 +99,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
 
     for * peer : host.peers {
         peer.host = host;
-        peer.incoming_peer_id = cast(u16)(cast(u64)peer - cast(u64)host.peers.data);
+        peer.incoming_peer_id = cast(u16)it_index;
         peer.outgoing_session_id = 0xFF;
         peer.incoming_session_id = 0xFF;
         peer.data = null;
@@ -142,7 +142,6 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     current_peer.state = .CONNECTING;
     current_peer.address = address;
     current_peer.connect_id = host.random_seed + 1;
-
 
     if host.outgoing_bandwidth == 0 {
         current_peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;

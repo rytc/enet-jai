@@ -279,6 +279,34 @@ host_flush :: (host: *Host) {
     protocol_send_outgoing_commands(host, null, false);
 }
 
+// 0 means unlimited bandwidth
+host_bandwidth_limit :: (host: *Host, incoming_bandwidth: int, outgoing_bandwidth: int) {
+    if incoming_bandwidth < 0 then incoming_bandwidth = 0;
+    else if incoming_bandwidth > U32_MAX then incoming_bandwidth = U32_MAX;
+
+    if outgoing_bandwidth < 0 then incoming_bandwidth = 0;
+    else if incoming_bandwidth > U32_MAX then incoming_bandwidth = U32_MAX;
+
+    host.incoming_bandwidth = cast(u32)incoming_bandwidth;
+    host.outgoing_bandwidth = cast(u32)outgoing_bandwidth;
+    host.recalculate_bandwidth_limits = true;
+}
+
+host_channel_limit :: (host: *Host, channel_limit: int) {
+    if channel_limt == 0 || channel_limit > PROTOCOL_MAX_CHANNEL_COUNT then channel_limit = PROTOCOL_MAX_CHANNEL_COUNT;
+
+    host.channel_limit = channel_limit;
+}
+
+host_broadcast :: (host: *Host, channel_id: u8, packet: *Packet) {
+    for * peer: host.peers {
+        if peer.state != .CONNECTED then continue;
+
+        enet_peer_send(peer, channel_id, packet);
+    }
+    
+    if packet.ref_count == 0 then packet_destroy(packet);
+}
 
 #scope_module
 HOST_RECEIVE_BUFFER_SIZE          :: 256 * 1024;

@@ -829,8 +829,8 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;
 
     // :Time
-    received_sent_time := net_to_host_endian(command.acknowledge.received_sent_time);
-    received_sent_time |= cast(u16)(service_time & 0xFFFF0000);
+    received_sent_time := cast(s64)net_to_host_endian(command.acknowledge.received_sent_time);
+    received_sent_time |= service_time & 0xFFFF0000;
     if received_sent_time & 0x8000 > service_time & 0x8000 then received_sent_time -= 0x1000;
 
     if service_time < received_sent_time then return .NONE;

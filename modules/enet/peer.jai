@@ -260,6 +260,12 @@ peer_ping_interval :: (peer: *Peer, interval: u32) {
     peer.ping_interval = ifx ping_interval then ping_interval else PEER_PING_INTERVAL;
 }
 
+peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max: u32) {
+    peer.timeout_limit = ifx timeout_limit then timeout_limit else PEER_TIMEOUT_LIMIT;
+    peer.timeout_minimum = ifx timeout_min then timeout_min else PEER_TIMEOUT_MIN;
+    peer.timeout_maximum = ifx timeout_max then timeout_max else PEER_TIMEOUT_MAX;
+}
+
 peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 

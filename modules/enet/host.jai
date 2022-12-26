@@ -156,14 +156,7 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     }
 
     for * channel: current_peer.channels {
-        channel.outgoing_reliable_seq_number = 0;
-        channel.outgoing_unreliable_seq_number = 0;
-        channel.incoming_reliable_seq_number = 0;
-        channel.incoming_unreliable_seq_number = 0;
-        channel.used_reliable_windows = 0;
-        list_clear(*channel.incoming_reliable_commands);
-        list_clear(*channel.incoming_unreliable_commands);
-        memset(channel.reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(type_of(PEER_RELIABLE_WINDOWS)));
+        channel_reset(channel);
     }
 
     command : Protocol;
@@ -280,6 +273,12 @@ host_send_raw :: (host: *Host, address: *Address, data: *$T) {
     buffer[0].length = size_of(t);
     socket_send(host.socket, address, buffer);
 }
+
+host_flush :: (host: *Host) {
+    host.service_time = current_time_monotonic();
+    protocol_send_outgoing_commands(host, null, false);
+}
+
 
 #scope_module
 HOST_RECEIVE_BUFFER_SIZE          :: 256 * 1024;
@@ -418,5 +417,6 @@ host_bandwidth_throttle :: (host: *Host) {
         }
     }
 }
+
 
 

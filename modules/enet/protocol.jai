@@ -357,9 +357,14 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> Result_St
                 return .SUCCESS;
             case .ZOMBIE;
                 host.recalculate_bandwidth_limits = true;
+
                 event.type = .DISCONNECT;
                 event.peer = peer;
                 event.data = peer.event_data;
+
+                peer_reset(peer);
+
+                return .SUCCESS;
             case .CONNECTED;
                 if list_empty(*peer.dispatched_commands) continue;
 
@@ -694,6 +699,15 @@ protocol_change_state :: (host: *Host, peer: *Peer, state: Peer_State) {
     peer.state = state;
 }
 
+protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
+    protocol_change_state(host, peer, state);
+
+    if !peer.needs_dispatch {
+        list_insert(list_end(*host.dispatch_queue), *peer.dispatch_list);
+        peer.needs_dispatch = true;
+    }
+}
+
 protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Status {
     // offset_of sent_time of Protocol_Header
     if host.received_data_length < size_of(u16) return .NONE;
@@ -737,7 +751,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
     // @TODO :checksum support
     // if host.checksum != null { }
-
 
     if peer {
         peer.address.host = host.received_address.host;
@@ -808,27 +821,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
     if event != null && event.type != .NONE return 1;
 
     return .NONE;
-}
-
-protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) {
-    if peer.state >= .CONNECTION_PENDING host.recalculate_bandwidth_limits = true;
-
-    if peer.state != .CONNECTING && peer.state < .CONNECTION_SUCCEEDED {
-        peer_reset(peer);
-    } else if event != null {
-        event.type = .DISCONNECT_TIMEOUT;
-        event.peer = peer;
-        event.data = 0;
-
-        peer_reset(peer);
-    } else {
-        peer.event_data = 0;
-        protocol_dispatch_state(host, peer, .ZOMBIE);
-    }
-}
-
-protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
-    log_error("TODO: protocol_dispatch_state is not implemented\n");
 }
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
@@ -1012,7 +1004,24 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
 }
 
 protocol_handle_disconnect :: (host: *Host, peer: *Peer, command: Protocol) -> Result_Status {
-    log_error("TODO: protocol_handle_disconnect is not implemented\n");
+    if peer.state == .DISCONNECTED || peer.state == .ZOMBIE || peer.state == .ACKNOWLEDGING_DISCONNECT then return .NONE;
+
+    peer_reset_queues(peer);
+
+    if peer.state == .CONNECTION_SUCCEEDED || peer.state == .DISCONNECTING || peer.state == .CONNECTING {
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+    } else if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
+        if peer.state == .CONNECTION_PENDING then host.recalculate_bandwidth_limits = true;
+        peer_reset(peer);
+    } else if command.header.command & .FLAG_ACKNOWLEDGE {
+        protocol_change_state(host, peer, .ACKNOWLEDGING_DISCONNECT);
+    } else {
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+    }
+
+    if peer.state != .DISCONNECTED then peer.event_data = net_to_host_endian(command.disconnect.data);
+
+    return .NONE;
 }
 
 protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
@@ -1037,6 +1046,8 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
     if channel_count < peer.channels.count {
         array_free(peer.channels);
         peer.channels = NewArray(channel_count, Channel);
+
+        for * channel: peer.channels channel_reset(channel);
     }
 
     peer.outgoing_peer_id = net_to_host_endian(command.verify_connect.outgoing_peer_id);
@@ -1140,7 +1151,37 @@ protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
 }
 
 protocol_notify_disconnect :: (host: *Host, peer: *Peer, event: *Event) {
-    log_error("TODO: protocol_notify_disconnect not implemented\n");
+    if peer.state >= .CONNECTION_PENDING then host.recalculate_bandwidth_limits = true;
+
+    if peer.state != .CONNECTING && peer.state < .CONNECTION_SUCCEEDED {
+        peer_reset(peer);
+    } else if event != null {
+        event.type = .DISCONNECT;
+        event.peer = peer;
+        event.data = 0;
+
+        peer_reset(peer);
+    } else {
+        peer.event_data = 0;
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+    }
+}
+
+protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) {
+    if peer.state >= .CONNECTION_PENDING host.recalculate_bandwidth_limits = true;
+
+    if peer.state != .CONNECTING && peer.state < .CONNECTION_SUCCEEDED {
+        peer_reset(peer);
+    } else if event != null {
+        event.type = .DISCONNECT_TIMEOUT;
+        event.peer = peer;
+        event.data = 0;
+
+        peer_reset(peer);
+    } else {
+        peer.event_data = 0;
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+    }
 }
 
 protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {

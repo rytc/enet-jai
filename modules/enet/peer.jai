@@ -186,6 +186,60 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
     return .NONE;
 }
 
+peer_disconnect :: (peer: *Peer, data: u32) {
+    if peer.state == .DISCONNECTING || peer.state == .DISCONNECTED ||
+       peer.state == .ACKNOWLEDGING_DISCONNECT || peer.state == .ZOMBIE then return;
+
+    peer_reset_queues(peer);
+    
+    command : Protocol;
+    command.header.command = .DISCONNECT;
+    command.header.channel_id = 0xFF;
+    command.disconnect.data = host_to_net_endian(data);
+
+    if peer.state == .CONNECTED || peer.state == .DISCONNECT_LATER {
+        command.header.command |= Protocol_Command.FLAG_ACKNOWLEDGE;
+    } else {
+        command.header.command |= Protocol_Command.FLAG_UNSEQUENCED;
+    }
+
+    peer_queue_outgoing_command(peer, *command, null, 0, 0);
+
+    if peer.state == .CONNECTED || peer.state == .DISCONNECT_LATER {
+        peer_on_disconnect(peer);
+        peer.state = .DISCONNECTING;
+    } else {
+        host_flush(*peer.host);
+        peer_reset(peer);
+    }
+}
+
+peer_disconnect_now :: (peer: *Peer, data: u32) {
+    if peer.state == .DISCONNECTED return;
+
+    if peer.state != .ZOMBIE || peer.state != .DISCONNECTING {
+        peer_reset_queues(peer);
+
+        command : Protocol;
+        command.header.command = Protocol_Command.DISCONNECT | .FLAG_UNSEQUENCED;
+        command.header.channel_id = 0xFF;
+        command.disconnect.data = host_to_net_32(data);
+    }
+
+    peer_reset(peer);
+}
+
+peer_ping :: (peer: *Peer) {
+    command : Protocol;
+
+    if peer.state != .CONNECTED then return;
+
+    command.header.command = Protocol_Command.PING | .FLAG_ACKNOWLEDGE;
+    command.header.channel_id = 0xFF;
+
+    peer_queue_outgoing_command(peer, *command, null, 0, 0);
+}
+
 peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 
@@ -273,6 +327,69 @@ PEER_PACKET_THROTTLE_COUNTER :: 7;
 
 DUMMY_COMMAND : Incoming_Command; 
 
+peer_on_connect :: (peer: *Peer) {
+    if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
+        if peer.incoming_bandwidth != 0 {
+            peer.host.bandwidth_limited_peers += 1;
+        }
+
+        peer.host.connected_peers += 1;
+    }
+}
+
+peer_on_disconnect :: (peer: *Peer) {
+    if peer.state == .CONNECTED && peer.state == .DISCONNECT_LATER {
+        if peer.incoming_bandwidth != 0 {
+            peer.host.bandwidth_limited_peers -= 1;
+        }
+
+        peer.host.connected_peers -= 1;
+    }
+}
+
+peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
+    if list_empty(*peer.dispatched_commands) return null;
+
+    incoming_cmd := cast(*Incoming_Command)list_remove(list_begin(*peer.dispatched_commands));
+
+    if channel_id != null then <<channel_id = incoming_cmd.command.header.channel_id;
+
+    packet := incoming_cmd.packet;
+    packet.ref_count -= 1;
+
+    array_free(incoming_cmd.fragments);
+
+    free(incoming_cmd);
+    peer.total_waiting_data -= packet.data_length;
+
+    return packet;
+}
+
+peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
+    if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
+        peer.packet_throttle = peer.packet_throttle_limit;
+    } else if round_trip_time < peer.last_round_trip_time {
+        peer.packet_throttle += peer.packet_throttle_acceleration;
+        
+        if peer.packet_throttle > peer.packet_throttle_acceleration {
+            peer.packet_throttle = peer.packet_throttle_limit;
+        }
+
+        return .SUCCESS;
+
+    } else if round_trip_time > peer.last_round_trip_time + 2 * peer.last_round_trip_time_variance {
+        if peer.packet_throttle > peer.packet_throttle_deceleration {
+            peer.packet_throttle -= peer.packet_throttle_deceleration;
+        } else {
+            peer.packet_throttle = 0;
+        }
+
+        return .ERROR;
+    }
+
+    return .NONE;
+}
+
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
 
@@ -336,54 +453,7 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     }
 }
 
-peer_ping :: (peer: *Peer) {
-    command : Protocol;
 
-    if peer.state != .CONNECTED then return;
-
-    command.header.command = Protocol_Command.PING | .FLAG_ACKNOWLEDGE;
-    command.header.channel_id = 0xFF;
-
-    peer_queue_outgoing_command(peer, *command, null, 0, 0);
-}
-
-peer_on_connect :: (peer: *Peer) {
-    if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
-        if peer.incoming_bandwidth != 0 {
-            peer.host.bandwidth_limited_peers += 1;
-        }
-
-        peer.host.connected_peers += 1;
-    }
-}
-
-peer_on_disconnect :: (peer: *Peer) {
-    if peer.state == .CONNECTED && peer.state == .DISCONNECT_LATER {
-        if peer.incoming_bandwidth != 0 {
-            peer.host.bandwidth_limited_peers -= 1;
-        }
-
-        peer.host.connected_peers -= 1;
-    }
-}
-
-peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
-    if list_empty(*peer.dispatched_commands) return null;
-
-    incoming_cmd := cast(*Incoming_Command)list_remove(list_begin(*peer.dispatched_commands));
-
-    if channel_id != null then <<channel_id = incoming_cmd.command.header.channel_id;
-
-    packet := incoming_cmd.packet;
-    packet.ref_count -= 1;
-
-    array_free(incoming_cmd.fragments);
-
-    free(incoming_cmd);
-    peer.total_waiting_data -= packet.data_length;
-
-    return packet;
-}
 
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
     if command.header.channel_id < peer.channels.count {
@@ -408,34 +478,7 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
     return acknowledgement;
 }
 
-peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
-    if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
-        peer.packet_throttle = peer.packet_throttle_limit;
-    } else if round_trip_time < peer.last_round_trip_time {
-        peer.packet_throttle += peer.packet_throttle_acceleration;
-        
-        if peer.packet_throttle > peer.packet_throttle_acceleration {
-            peer.packet_throttle = peer.packet_throttle_limit;
-        }
 
-        return .SUCCESS;
-
-    } else if round_trip_time > peer.last_round_trip_time + 2 * peer.last_round_trip_time_variance {
-        if peer.packet_throttle > peer.packet_throttle_deceleration {
-            peer.packet_throttle -= peer.packet_throttle_deceleration;
-        } else {
-            peer.packet_throttle = 0;
-        }
-
-        return .ERROR;
-    }
-
-    return .NONE;
-}
-
-peer_disconnect :: (peer: *Peer, data: u32) {
-    log_error("TODO: peer_disconnect not implemented\n");
-}
 
 peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, data_length: u32, flags: Packet_Flags, fragment_count: u32) -> *Incoming_Command {
     packet : *Packet;

@@ -164,6 +164,17 @@ Channel :: struct {
     incoming_unreliable_commands   : List;
 }
 
+channel_reset :: (channel: *Channel) {
+    channel.outgoing_reliable_seq_number = 0;
+    channel.outgoing_unreliable_seq_number = 0;
+    channel.incoming_reliable_seq_number = 0;
+    channel.incoming_unreliable_seq_number = 0;
+    channel.used_reliable_windows = 0;
+    list_clear(*channel.incoming_reliable_commands);
+    list_clear(*channel.incoming_unreliable_commands);
+    memset(channel.reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(type_of(PEER_RELIABLE_WINDOWS)));
+}
+
 // Should match WSABUF
 Buffer :: struct {
     length : u32;

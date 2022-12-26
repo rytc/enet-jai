@@ -1,5 +1,4 @@
 
-
 main :: () {
     if !enet.initialize() {
         print("Failed to initialize enet\n");
@@ -34,7 +33,7 @@ main :: () {
     msg2 := "The UNRELIABLE fox jumped over the lazy dog";
     packet_unreliable := enet.packet_create(msg2.data, msg2.count, .UNRELIABLE_FRAGMENT);
 
-    send_msg := 0;
+    counter := 0;
 
     while running {
         event : enet.Event;
@@ -43,7 +42,7 @@ main :: () {
             if event.type == {
                 case .CONNECT;
                     print("Connected to server. Sending a secret message.\n");
-                    send_msg += 1;
+                    counter += 1;
                 case .DISCONNECT; #through;
                 case .DISCONNECT_TIMEOUT;
                     print("Disconnected: %\n", event.type);
@@ -54,12 +53,17 @@ main :: () {
             }
         }
 
-        if send_msg == 1 {
-            enet.peer_send(peer, 0, packet);
-            send_msg += 1;
-        } else if send_msg == 2 {
-            enet.peer_send(peer, 0, packet_unreliable);
-            send_msg += 1;
+        if counter == {
+            case 1;
+                enet.peer_send(peer, 0, packet);
+            case 2; 
+                enet.peer_send(peer, 0, packet_unreliable);
+            case 100; // Have to give enough time for both packets to send
+                enet.peer_disconnect(peer, 0);
+        }
+
+        if counter > 0 {
+            counter += 1;
         }
 
         sleep_milliseconds(16);

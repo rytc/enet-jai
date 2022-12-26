@@ -3,7 +3,7 @@ This is a native Jai port (no c libraries needed, aside from the OS sockets) of 
 
 ### Current state
 
-While the simple examples work, it is not yet ready for production and is still missing functionality. 
+All ENet functionality is implemented, however it is not thoroughly tested.
 
 ### What is ENet?
 > ENet evolved specifically as a UDP networking layer for the multiplayer first person shooter Cube.

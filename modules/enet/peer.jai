@@ -232,6 +232,19 @@ peer_disconnect_now :: (peer: *Peer, data: u32) {
     peer_reset(peer);
 }
 
+peer_disconnect_later :: (peer: *Peer, data: u32) {
+    if peer.state == .CONNECTED || peer.state == .DISCONNECT_LATER &&
+       (!list_empty(*peer.outgoing_reliable_commands) &&
+        list_empty(*peer.outgoing_unreliable_commands) &&
+        list_empty(peer.sent_reliable_commands)) {
+
+        peer.state = .DISCONNECT_LATER;
+        peer.event_data = data;
+    } else {
+        peer_disconnect(peer, data);
+    }
+}
+
 peer_ping :: (peer: *Peer) {
     command : Protocol;
 
@@ -241,6 +254,10 @@ peer_ping :: (peer: *Peer) {
     command.header.channel_id = 0xFF;
 
     peer_queue_outgoing_command(peer, *command, null, 0, 0);
+}
+
+peer_ping_interval :: (peer: *Peer, interval: u32) {
+    peer.ping_interval = ifx ping_interval then ping_interval else PEER_PING_INTERVAL;
 }
 
 peer_reset :: (peer: *Peer) {

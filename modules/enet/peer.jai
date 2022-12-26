@@ -20,6 +20,7 @@ Peer :: struct {
     data : *void;
     mtu : u32;
     host : Host;
+
     window_size : u32;
 
     outgoing_peer_id : u16;
@@ -46,6 +47,8 @@ Peer :: struct {
 
     outgoing_reliable_seq_number : u16;
     outgoing_unsequenced_group : u16;
+    unsequenced_window : [PEER_UNSEQUENCED_WINDOW_SIZE / 32]u32;
+    incoming_unsequenced_group : u16;
 
     outgoing_reliable_commands : List;
     outgoing_unreliable_commands : List;
@@ -307,23 +310,26 @@ peer_reset_incoming_commands :: (list: *List) {
 
 #scope_module
 
-PEER_WINDOW_SIZE_SCALE      :: 64 * 1024;
-PEER_RELIABLE_WINDOWS       :u16: 16;
-PEER_RELIABLE_WINDOW_SIZE   :: 0x1000;
-PEER_DEFAULT_PACKET_THROTTLE :: 32;
-PEER_PACKET_THROTTLE_SCALE  :: 32;
+PEER_WINDOW_SIZE_SCALE            :: 64 * 1024;
+PEER_RELIABLE_WINDOWS          :u16: 16;
+PEER_RELIABLE_WINDOW_SIZE         :: 0x1000;
+PEER_DEFAULT_PACKET_THROTTLE      :: 32;
+PEER_PACKET_THROTTLE_SCALE        :: 32;
 PEER_PACKET_THROTTLE_ACCELERATION :: 2;
 PEER_PACKET_THROTTLE_DECELERATION :: 2;
-PEER_PACKET_THROTTLE_INTERVAL :: 5000;
-PEER_PACKET_LOSS_INTERVAL   :: 10000;
-PEER_PACKET_LOSS_SCALE      :: (1 << 16);
-PEER_FREE_RELIABLE_WINDOWS  :: 8;
-PEER_TIMEOUT_LIMIT          :: 32;
-PEER_TIMEOUT_MINIMUM        :: 5000;
-PEER_TIMEOUT_MAXIMUM        :: 30000;
-PEER_DEFAULT_ROUND_TRIP_TIME :: 500;
-PEER_PING_INTERVAL           :: 800;
-PEER_PACKET_THROTTLE_COUNTER :: 7;
+PEER_PACKET_THROTTLE_INTERVAL     :: 5000;
+PEER_PACKET_LOSS_INTERVAL         :: 10000;
+PEER_PACKET_LOSS_SCALE            :: (1 << 16);
+PEER_FREE_RELIABLE_WINDOWS        :: 8;
+PEER_TIMEOUT_LIMIT                :: 32;
+PEER_TIMEOUT_MINIMUM              :: 5000;
+PEER_TIMEOUT_MAXIMUM              :: 30000;
+PEER_DEFAULT_ROUND_TRIP_TIME      :: 500;
+PEER_PING_INTERVAL                :: 800;
+PEER_PACKET_THROTTLE_COUNTER      :: 7;
+PEER_UNSEQUENCED_WINDOW_SIZE      :: 1024;
+PEER_UNSEQUENCED_WINDOWS          :: 64;
+PEER_FREE_UNSEQUENCED_WINDOWS     :: 32;
 
 DUMMY_COMMAND : Incoming_Command; 
 

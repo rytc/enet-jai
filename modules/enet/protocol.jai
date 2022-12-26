@@ -708,6 +708,113 @@ protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
     }
 }
 
+protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
+    if peer.state != .CONNECTING then return .NONE;
+
+    channel_count := net_to_host_endian(command.verify_connect.channel_count);
+
+    // @TODO :giant_if
+    if channel_count < PROTOCOL_MIN_CHANNEL_COUNT || channel_count > PROTOCOL_MAX_CHANNEL_COUNT ||
+        net_to_host_endian(command.verify_connect.packet_throttle_interval) != peer.packet_throttle_interval ||
+        net_to_host_endian(command.verify_connect.packet_throttle_acceleration) != peer.packet_throttle_acceleration ||
+        net_to_host_endian(command.verify_connect.packet_throttle_deceleration) != peer.packet_throttle_deceleration ||
+        command.verify_connect.connect_id != peer.connect_id {
+        
+        peer.event_data = 0;
+        protocol_dispatch_state(host, peer, .ZOMBIE);
+        return .ERROR;
+    }
+
+    protocol_remove_sent_reliable_command(peer, 1, 0xFF);
+
+    if channel_count < peer.channels.count {
+        array_free(peer.channels);
+        peer.channels = NewArray(channel_count, Channel);
+
+        for * channel: peer.channels channel_reset(channel);
+    }
+
+    peer.outgoing_peer_id = net_to_host_endian(command.verify_connect.outgoing_peer_id);
+    peer.incoming_session_id = command.verify_connect.incoming_session_id;
+    peer.outgoing_session_id = command.verify_connect.outgoing_session_id;
+
+    mtu := net_to_host_endian(command.verify_connect.mtu);
+
+    if mtu < PROTOCOL_MIN_MTU then mtu = PROTOCOL_MIN_MTU;
+    else if mtu > PROTOCOL_MAX_MTU then mtu = PROTOCOL_MAX_MTU;
+
+    if mtu < peer.mtu then peer.mtu = mtu;
+    
+    window_size := net_to_host_endian(command.verify_connect.window_size);
+    if window_size < PROTOCOL_MIN_WINDOW_SIZE then window_size = PROTOCOL_MIN_WINDOW_SIZE;
+    else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
+
+    if window_size < peer.window_size then peer.window_size = window_size;
+
+    peer.incoming_bandwidth = net_to_host_endian(command.verify_connect.incoming_bandwidth);
+    peer.outgoing_bandwidth = net_to_host_endian(command.verify_connect.outgoing_bandwidth);
+
+    protocol_notify_connect(host, peer, event);
+    return .NONE;
+}
+
+protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) -> Protocol_Command {
+    outgoing_cmd : *Outgoing_Command;
+    was_sent := true;
+
+    for peer.sent_reliable_commands {
+        outgoing_cmd = cast(*Outgoing_Command)it;
+        if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+    }
+
+    if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.sent_reliable_commands) {
+        for *peer.outgoing_reliable_commands {
+            outgoing_cmd = cast(*Outgoing_Command)it;
+
+            if outgoing_cmd.send_attempts < 1 then return .NONE;
+            if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+        }
+
+        if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.outgoing_reliable_commands) then return .NONE;
+        was_sent = false;
+    }
+
+    if outgoing_cmd == null then return .NONE;
+
+    if channel_id < peer.channels.count {
+        channel := *peer.channels[channel_id];
+        reliable_window := reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
+        if channel.reliable_windows[reliable_window] > 0 {
+            channel.reliable_windows[reliable_window] -= 1;
+            if !channel.reliable_windows[reliable_window] then channel.used_reliable_windows &= ~(cast(u16)1 << reliable_window);
+        }
+    }
+
+    cmd_number := outgoing_cmd.command.header.command & .MASK;
+    list_remove(outgoing_cmd);
+
+    if outgoing_cmd.packet != null {
+        if was_sent then peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
+
+        outgoing_cmd.packet.ref_count -= 1;
+
+        if outgoing_cmd.packet.ref_count == 0 {
+            outgoing_cmd.packet.flags |= Packet_Flags.SENT;
+            packet_destroy(outgoing_cmd.packet);
+        }
+    }
+
+    free(outgoing_cmd);
+
+    if list_empty(*peer.sent_reliable_commands) return cmd_number;
+
+    outgoing_cmd = cast(*Outgoing_Command)list_front(*peer.sent_reliable_commands);
+
+    peer.next_timeout = outgoing_cmd.sent_time + outgoing_cmd.round_trip_timeout;
+
+    return cmd_number;
+}
+
 protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Status {
     // offset_of sent_time of Protocol_Header
     if host.received_data_length < size_of(u16) return .NONE;
@@ -796,7 +903,11 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
             case .SEND_RELIABLE;    if protocol_handle_send_reliable(host, peer, command, *current_data) == .ERROR break;
             case .SEND_UNRELIABLE;  if protocol_handle_send_unreliable(host, peer, command, *current_data) == .ERROR break;
             case .SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) == .ERROR break; 
-            case; log_error("TODO: Command % not handled in protocol_handle_incoming_commands\n", command_number); break;
+            case .SEND_FRAGMENT;    if protocol_handle_send_fragment(host, peer, command, *current_data) == .ERROR break;
+            case .BANDWIDTH_LIMIT;  if protocol_handle_bandwidth_limit(host, peer, command) == .ERROR break;
+            case .THROTTLE_CONFIGURE; if protocol_handle_throttle_configure(host, peer, command) == .ERROR break;
+            case .SEND_UNRELIABLE_FRAGMENT; if protocol_handle_send_unreliable_fragment(host, peer, command, *current_data) == .ERROR break;
+            case; break;
         }
 
         assert(peer != null);
@@ -895,7 +1006,6 @@ protocol_handle_ping :: (host: *Host, peer: *Peer, command: Protocol) -> Result_
 }
 
 protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Protocol) -> *Peer {
-
     channel_count := net_to_host_endian(command.connect.channel_count);
 
     if channel_count < PROTOCOL_MIN_CHANNEL_COUNT || channel_count > PROTOCOL_MAX_CHANNEL_COUNT return null;
@@ -1024,111 +1134,107 @@ protocol_handle_disconnect :: (host: *Host, peer: *Peer, command: Protocol) -> R
     return .NONE;
 }
 
-protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
-    if peer.state != .CONNECTING then return .NONE;
+protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
+    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
 
-    channel_count := net_to_host_endian(command.verify_connect.channel_count);
+    data_length := net_to_host_endian(command.send_reliable.data_length);
+    <<current_data += data_length;
 
-    // @TODO :giant_if
-    if channel_count < PROTOCOL_MIN_CHANNEL_COUNT || channel_count > PROTOCOL_MAX_CHANNEL_COUNT ||
-        net_to_host_endian(command.verify_connect.packet_throttle_interval) != peer.packet_throttle_interval ||
-        net_to_host_endian(command.verify_connect.packet_throttle_acceleration) != peer.packet_throttle_acceleration ||
-        net_to_host_endian(command.verify_connect.packet_throttle_deceleration) != peer.packet_throttle_deceleration ||
-        command.verify_connect.connect_id != peer.connect_id {
-        
-        peer.event_data = 0;
-        protocol_dispatch_state(host, peer, .ZOMBIE);
-        return .ERROR;
-    }
+    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
 
-    protocol_remove_sent_reliable_command(peer, 1, 0xFF);
+    if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Reliable), data_length, .RELIABLE, 0) == null return .ERROR;
 
-    if channel_count < peer.channels.count {
-        array_free(peer.channels);
-        peer.channels = NewArray(channel_count, Channel);
-
-        for * channel: peer.channels channel_reset(channel);
-    }
-
-    peer.outgoing_peer_id = net_to_host_endian(command.verify_connect.outgoing_peer_id);
-    peer.incoming_session_id = command.verify_connect.incoming_session_id;
-    peer.outgoing_session_id = command.verify_connect.outgoing_session_id;
-
-    mtu := net_to_host_endian(command.verify_connect.mtu);
-
-    if mtu < PROTOCOL_MIN_MTU then mtu = PROTOCOL_MIN_MTU;
-    else if mtu > PROTOCOL_MAX_MTU then mtu = PROTOCOL_MAX_MTU;
-
-    if mtu < peer.mtu then peer.mtu = mtu;
-    
-    window_size := net_to_host_endian(command.verify_connect.window_size);
-    if window_size < PROTOCOL_MIN_WINDOW_SIZE then window_size = PROTOCOL_MIN_WINDOW_SIZE;
-    else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
-
-    if window_size < peer.window_size then peer.window_size = window_size;
-
-    peer.incoming_bandwidth = net_to_host_endian(command.verify_connect.incoming_bandwidth);
-    peer.outgoing_bandwidth = net_to_host_endian(command.verify_connect.outgoing_bandwidth);
-
-    protocol_notify_connect(host, peer, event);
     return .NONE;
 }
 
-protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) -> Protocol_Command {
-    outgoing_cmd : *Outgoing_Command;
-    was_sent := true;
+protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
 
-    for peer.sent_reliable_commands {
-        outgoing_cmd = cast(*Outgoing_Command)it;
-        if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
+
+    data_length := net_to_host_endian(command.send_unreliable.data_length);
+    <<current_data += data_length;
+    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
+
+    if peer_queue_incoming_command(peer, command, (cast(*u8)command) + size_of(Protocol_Send_Unreliable), data_length, 0, 0) == null then return .ERROR;
+
+    return .NONE;
+}
+
+protocol_handle_send_unsequenced :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
+    if command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) return .ERROR;
+
+    data_length := net_to_host_endian(command.send_unsequenced.data_length);
+    <<current_data += data_length;
+    
+    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
+
+    unsequenced_group := cast(s64)net_to_host_endian(command.send_unsequenced.unsequenced_group);
+    index := unsequenced_group % PEER_UNSEQUENCED_WINDOW_SIZE;
+
+    if unsequenced_group < peer.incoming_unsequenced_group then unsequenced_group += 0x10000;
+
+    if unsequenced_group >= peer.incoming_unsequenced_group + PEER_FREE_UNSEQUENCED_WINDOWS * PEER_UNSEQUENCED_WINDOW_SIZE return .NONE;
+
+    unsequenced_group &= 0xFFFF;
+
+    if unsequenced_group - index != peer.incoming_unsequenced_group {
+        peer.incoming_unsequenced_group = cast(u16)(unsequenced_group - index);
+        memset(peer.unsequenced_window.data, 0, peer.unsequenced_window.count * size_of(u32));
+    } else {
+        return .NONE;
     }
 
-    if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.sent_reliable_commands) {
-        for *peer.outgoing_reliable_commands {
-            outgoing_cmd = cast(*Outgoing_Command)it;
+    if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Unsequenced), data_length, .UNSEQUENCED, 0) == null then return .ERROR;
 
-            if outgoing_cmd.send_attempts < 1 then return .NONE;
-            if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
-        }
+    return .NONE;
+}
 
-        if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.outgoing_reliable_commands) then return .NONE;
-        was_sent = false;
+protocol_handle_send_fragment :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
+    log_error("TODO: protocol_handle_send_fragment not implemented\n");
+    return .NONE;
+}
+
+protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
+    log_error("TODO: protocol_handle_send_unreliable_fragment not implemented\n");
+    return .NONE;
+}
+
+protocol_handle_bandwidth_limit :: (host: *Host, peer: *Peer, command: *Protocol) -> Result_Status {
+    if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER then return .ERROR;
+
+    if peer.incoming_bandwidth != 0 then host.bandwidth_limited_peers -= 1;
+
+    peer.incoming_bandwidth = net_to_host_endian(command.bandwidth_limit.incoming_bandwidth);
+
+    if peer.incoming_bandwidth != 0 then host.bandwidth_limited_peers += 1;
+
+    peer.outgoing_bandwidth = net_to_host_endian(command.bandwidth_limit.outgoing_bandwidth);
+
+    if peer.incoming_bandwidth == 0 && host.outgoing_bandwidth == 0 {
+        peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    } else if peer.incoming_bandwidth == 0 || host.outgoing_bandwidth == 0 {
+        peer.window_size = (max(peer.incoming_bandwidth, host.outgoing_bandwidth) / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
+    } else {
+        peer.window_size = (min(peer.incoming_bandwidth, host.outgoing_bandwidth) / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
+    }
+    
+    if peer.window_size < PROTOCOL_MIN_WINDOW_SIZE {
+        peer.window_size = PROTOCOL_MIN_WINDOW_SIZE;
+    } else if peer.window_size > PROTOCOL_MAX_WINDOW_SIZE {
+        peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;
     }
 
-    if outgoing_cmd == null then return .NONE;
+    return .NONE;
+}
 
-    if channel_id < peer.channels.count {
-        channel := *peer.channels[channel_id];
-        reliable_window := reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
-        if channel.reliable_windows[reliable_window] > 0 {
-            channel.reliable_windows[reliable_window] -= 1;
-            if !channel.reliable_windows[reliable_window] then channel.used_reliable_windows &= ~(cast(u16)1 << reliable_window);
-        }
-    }
+protocol_handle_throttle_configure :: (host: *Host, peer: *Peer, command: *Protocol) -> Result_Status {
+    if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER then return .ERROR;
 
-    cmd_number := outgoing_cmd.command.header.command & .MASK;
-    list_remove(outgoing_cmd);
+    peer.packet_throttle_interval = net_to_host_endian(command.throttle_configure.packet_throttle_interval);
+    peer.packet_throttle_acceleration = net_to_host_endian(command.throttle_configure.packet_throttle_acceleration);
+    peer.packet_throttle_deceleration = net_to_host_endian(command.throttle_configure.packet_throttle_deceleration);
 
-    if outgoing_cmd.packet != null {
-        if was_sent then peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
-
-        outgoing_cmd.packet.ref_count -= 1;
-
-        if outgoing_cmd.packet.ref_count == 0 {
-            outgoing_cmd.packet.flags |= Packet_Flags.SENT;
-            packet_destroy(outgoing_cmd.packet);
-        }
-    }
-
-    free(outgoing_cmd);
-
-    if list_empty(*peer.sent_reliable_commands) return cmd_number;
-
-    outgoing_cmd = cast(*Outgoing_Command)list_front(*peer.sent_reliable_commands);
-
-    peer.next_timeout = outgoing_cmd.sent_time + outgoing_cmd.round_trip_timeout;
-
-    return cmd_number;
+    return .NONE;
 }
 
 protocol_notify_connect :: (host: *Host, peer: *Peer, event: *Event) {
@@ -1184,41 +1290,4 @@ protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) 
     }
 }
 
-protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
-    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
-
-    data_length := net_to_host_endian(command.send_reliable.data_length);
-    <<current_data += data_length;
-
-    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
-
-    if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Reliable), data_length, .RELIABLE, 0) == null return .ERROR;
-
-    return .NONE;
-}
-
-protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
-
-    if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
-
-    data_length := net_to_host_endian(command.send_unreliable.data_length);
-    <<current_data += data_length;
-    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
-
-    if peer_queue_incoming_command(peer, command, (cast(*u8)command) + size_of(Protocol_Send_Unreliable), data_length, 0, 0) == null then return .ERROR;
-
-    return .NONE;
-}
-
-protocol_handle_send_unsequenced :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
-    log_error("TODO: protocol_handle_send_unsequenced\n");
-    // if (command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) return -1;
-
-    // data_length := net_to_host_endian(command.send_unsequenced.data_length);
-    // <<current_data += data_length;
-    
-    // if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] retyrn -1;
-
-    // unsequenced_group := net_to_host_endian(command.send_unsequenced.unsequenced_group);
-}
 

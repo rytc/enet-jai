@@ -223,11 +223,12 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 }
             }
 
-            if list_empty(*peer.sent_reliable_commands) && 
+            if (list_empty(*peer.outgoing_reliable_commands) || 
+                protocol_send_reliable_outgoing_commands(host, peer)) &&
+                list_empty(*peer.sent_reliable_commands) && 
                 service_time - peer.last_received_time >= peer.ping_interval &&
-                peer.mtu - host.packet_size >= size_of(Protocol_Ping) && 
-                (list_empty(*peer.outgoing_reliable_commands) || 
-                protocol_send_reliable_outgoing_commands(host, peer)) {
+                peer.mtu - host.packet_size >= size_of(Protocol_Ping) 
+             {
 
                 peer_ping(peer);
                 protocol_send_reliable_outgoing_commands(host, peer);

@@ -498,7 +498,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     buffer := *host.buffers[host.buffer_count];
 
     window_wrap := false;
-    window_exceeded := true;
+    window_exceeded := false;
     can_ping := true;
 
     current_cmd := list_begin(*peer.outgoing_reliable_commands);
@@ -512,13 +512,18 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         if channel != null {
             if !window_wrap && outgoing_cmd.send_attempts < 1 &&
                 !(outgoing_cmd.reliable_seq_number % PEER_RELIABLE_WINDOW_SIZE) && 
-                channel.reliable_windows[(reliable_window + PEER_RELIABLE_WINDOWS - 1) % PEER_RELIABLE_WINDOWS] >= PEER_RELIABLE_WINDOW_SIZE ||
-                channel.used_reliable_windows & ((((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) << reliable_window | (((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) >> (PEER_RELIABLE_WINDOWS - reliable_window)))) {
+                (channel.reliable_windows[(reliable_window + PEER_RELIABLE_WINDOWS - 1)
+                % PEER_RELIABLE_WINDOWS] >= PEER_RELIABLE_WINDOW_SIZE ||
+                channel.used_reliable_windows & ((((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) << reliable_window)
+                | (((1 << PEER_FREE_RELIABLE_WINDOWS) - 1) >> (PEER_RELIABLE_WINDOWS - reliable_window)))) {
 
                 window_wrap = true;
             }
 
-            if window_wrap continue;
+            if window_wrap {
+                current_cmd = list_next(current_cmd);
+                continue;
+            }
         }
 
         if outgoing_cmd.packet != null {
@@ -526,7 +531,11 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
                 window_size := (peer.packet_throttle * peer.window_size) / PEER_PACKET_THROTTLE_SCALE;
 
                 if peer.reliable_data_in_transit + outgoing_cmd.fragment_length > max(window_size, peer.mtu) then window_exceeded = true;
-                if window_exceeded continue;
+            }
+
+            if window_exceeded {
+                current_cmd = list_next(current_cmd);
+                continue;
             }
         }
 

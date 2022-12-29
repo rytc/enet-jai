@@ -302,7 +302,7 @@ host_broadcast :: (host: *Host, channel_id: u8, packet: *Packet) {
     for * peer: host.peers {
         if peer.state != .CONNECTED then continue;
 
-        enet_peer_send(peer, channel_id, packet);
+        peer_send(peer, channel_id, packet);
     }
     
     if packet.ref_count == 0 then packet_destroy(packet);

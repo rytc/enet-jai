@@ -1,4 +1,3 @@
-
 # ENet Jai
 
 This is a native Jai port (no c libraries needed, aside from the OS sockets) of the ENet reliable UDP networking library. Specifically this is of the zpl-c version that supports IPv6 and other features.

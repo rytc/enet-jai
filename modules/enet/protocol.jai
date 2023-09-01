@@ -408,7 +408,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
             
         // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-        buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
+        buffer - host.buffers.data + 1 >= MAX_BUFFER_COUNT ||
         peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) {
 
             host.continue_sending = true;

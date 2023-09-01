@@ -393,29 +393,20 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
     command := *host.commands[host.command_count];
     buffer := *host.buffers[host.buffer_count];
 
-    // Need to remove and free after the iteration
-    prev_cmd : *List_Node;
-    remove_and_free_prev :: () #expand {
-        if prev_cmd {
-            list_remove(prev_cmd);
-            free(prev_cmd);
-        }
-    }
-    defer remove_and_free_prev();
+    current_ack := list_begin(*peer.acknowledgements); 
 
-    for current_ack: peer.acknowledgements {
-        remove_and_free_prev();
-            
+    while current_ack != list_end(*peer.acknowledgements) {
         // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-        buffer - host.buffers.data + 1 >= MAX_BUFFER_COUNT ||
-        peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) {
+            buffer - host.buffers.data + 1 >= MAX_BUFFER_COUNT ||
+            peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) {
 
             host.continue_sending = true;
             break;
         }
 
         ack := cast(*Acknowledgement)current_ack;
+        current_ack = cast(*Acknowledgement)list_next(current_ack);
 
         buffer.data = command;
         buffer.length = size_of(Protocol_Acknowledge);
@@ -431,7 +422,8 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 
         if ack.command.header.command & .MASK == .DISCONNECT then protocol_dispatch_state(host, peer, .ZOMBIE);
 
-        prev_cmd = ack;
+        list_remove(ack);
+        free(ack);
 
         command += 1;
         buffer += 1;
@@ -600,7 +592,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     return can_ping;
 }
 
-protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) {
+protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) #no_abc {
     command := *host.commands[host.command_count];
     buffer := *host.buffers[host.buffer_count];
 
@@ -902,21 +894,21 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
         // print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
 
         if command_number == {
-            case .ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) == .ERROR break;
+            case .ACKNOWLEDGE; protocol_handle_acknowledge(host, event, peer, command);
             case .CONNECT; 
                 if peer != null  continue;
                 peer = protocol_handle_connect(host, header, command);
                 if peer == null break;
-            case .VERIFY_CONNECT;   if protocol_handle_verify_connect(host, event, peer, command) == .ERROR break;
-            case .DISCONNECT;       if protocol_handle_disconnect(host, peer, command) == .ERROR break;
-            case .PING;             if protocol_handle_ping(host, peer, command) == .ERROR break;
-            case .SEND_RELIABLE;    if protocol_handle_send_reliable(host, peer, command, *current_data) == .ERROR break;
-            case .SEND_UNRELIABLE;  if protocol_handle_send_unreliable(host, peer, command, *current_data) == .ERROR break;
-            case .SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) == .ERROR break; 
-            case .SEND_FRAGMENT;    if protocol_handle_send_fragment(host, peer, command, *current_data) == .ERROR break;
-            case .BANDWIDTH_LIMIT;  if protocol_handle_bandwidth_limit(host, peer, command) == .ERROR break;
-            case .THROTTLE_CONFIGURE; if protocol_handle_throttle_configure(host, peer, command) == .ERROR break;
-            case .SEND_UNRELIABLE_FRAGMENT; if protocol_handle_send_unreliable_fragment(host, peer, command, *current_data) == .ERROR break;
+            case .VERIFY_CONNECT;   protocol_handle_verify_connect(host, event, peer, command);
+            case .DISCONNECT;       protocol_handle_disconnect(host, peer, command);
+            case .PING;             protocol_handle_ping(host, peer, command);
+            case .SEND_RELIABLE;    protocol_handle_send_reliable(host, peer, command, *current_data);
+            case .SEND_UNRELIABLE;  protocol_handle_send_unreliable(host, peer, command, *current_data);
+            case .SEND_UNSEQUENCED; protocol_handle_send_unsequenced(host, peer, command, *current_data); 
+            case .SEND_FRAGMENT;    protocol_handle_send_fragment(host, peer, command, *current_data);
+            case .BANDWIDTH_LIMIT;  protocol_handle_bandwidth_limit(host, peer, command);
+            case .THROTTLE_CONFIGURE; protocol_handle_throttle_configure(host, peer, command);
+            case .SEND_UNRELIABLE_FRAGMENT; protocol_handle_send_unreliable_fragment(host, peer, command, *current_data);
             case; break;
         }
 
@@ -939,7 +931,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
         }
     }
 
-    if event != null && event.type != .NONE return 1;
+    if event != null && event.type != .NONE return .SUCCESS;
 
     return .NONE;
 }

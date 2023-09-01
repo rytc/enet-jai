@@ -592,6 +592,9 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     return can_ping;
 }
 
+// @TODO this has no_abc because host.buffer_count may be larger than the number
+// of buffers. Should check the host.buffer_count before attempting to access the array.
+// The reason it's done this way is because the code after the loop needs to run either way
 protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) #no_abc {
     command := *host.commands[host.command_count];
     buffer := *host.buffers[host.buffer_count];

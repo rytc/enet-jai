@@ -183,7 +183,8 @@ PROTOCOL_COMMAND_SIZES :: u32.[
     size_of(Protocol_Send_Fragment),
     size_of(Protocol_Send_Unsequenced),
     size_of(Protocol_Bandwidth_Limit),
-    size_of(Protocol_Throttle_Configure)
+    size_of(Protocol_Throttle_Configure),
+    size_of(Protocol_Send_Fragment)
 ];
 
 protocol_command_size :: (command : Protocol_Command) -> u32 {
@@ -193,8 +194,6 @@ protocol_command_size :: (command : Protocol_Command) -> u32 {
 protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeouts: bool) -> Result_Status {
     header_data : [size_of(Protocol_Header) + size_of(u32)]u8;
     header : *Protocol_Header = cast(*Protocol_Header)header_data.data;
-    // :Time
-    service_time := to_milliseconds(host.service_time);
     host.continue_sending = true;
 
     while host.continue_sending {
@@ -213,7 +212,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
 
             if check_for_timeouts &&
                 !list_empty(*peer.sent_reliable_commands) && 
-                service_time >= peer.next_timeout &&
+                host.service_time >= peer.next_timeout &&
                 protocol_check_timeouts(host, peer, event) == true {
 
                 if event != null && event.type != .NONE { 
@@ -226,7 +225,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             if (list_empty(*peer.outgoing_reliable_commands) || 
                 protocol_send_reliable_outgoing_commands(host, peer)) &&
                 list_empty(*peer.sent_reliable_commands) && 
-                service_time - peer.last_received_time >= peer.ping_interval &&
+                host.service_time - peer.last_received_time >= peer.ping_interval &&
                 peer.mtu - host.packet_size >= size_of(Protocol_Ping) 
              {
 
@@ -241,8 +240,8 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             if host.command_count == 0 then continue;
 
             if peer.packet_loss_epoch == 0 { // :Time
-                peer.packet_loss_epoch = service_time;
-            } else if service_time - peer.packet_loss_epoch >= PEER_PACKET_LOSS_INTERVAL && peer.packets_sent > 0 {
+                peer.packet_loss_epoch = host.service_time;
+            } else if host.service_time - peer.packet_loss_epoch >= PEER_PACKET_LOSS_INTERVAL && peer.packets_sent > 0 {
                 packet_loss := peer.packets_lost * PEER_PACKET_LOSS_SCALE / peer.packets_sent; 
 
                 // @TODO optionally log packet loss here
@@ -257,7 +256,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                     peer.packet_loss_variance +=  (peer.packet_loss - packet_loss) / 4;
                 }
 
-                peer.packet_loss_epoch = service_time;
+                peer.packet_loss_epoch = host.service_time;
                 peer.packets_sent = 0;
                 peer.packets_lost = 0;
             }
@@ -265,7 +264,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             host.buffers[0].data = *header_data;
             if host.header_flags & PROTOCOL_FLAG_SENT_TIME {
                 // :Time
-                header.sent_time = host_to_net_endian(cast(u16)(service_time & 0xFFFF));
+                header.sent_time = host_to_net_endian(cast(u16)(host.service_time & 0xFFFF));
                 host.buffers[0].length = size_of(Protocol_Header);
             } else {
                 // offset_of sent_time Protocol_Header
@@ -288,7 +287,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             // @TODO :compression
             // if should_compress { }
 
-            peer.last_sent_time = service_time;
+            peer.last_sent_time = host.service_time;
 
             sent_length := socket_send(host.socket, *peer.address, host.buffers, host.buffer_count);
             // print("Sent packet of size %\n", sent_length);
@@ -444,8 +443,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
         current_cmd = list_next(current_cmd);
 
         // :Time
-        service_time := to_milliseconds(host.service_time);
-        if service_time - outgoing_cmd.sent_time < outgoing_cmd.round_trip_timeout {
+        if host.service_time - outgoing_cmd.sent_time < outgoing_cmd.round_trip_timeout {
             continue;
         }
 
@@ -456,9 +454,9 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
 
         // :Time
         if peer.earliest_timeout != 0 && (
-            service_time - peer.earliest_timeout >= peer.timeout_maximum ||
+            host.service_time - peer.earliest_timeout >= peer.timeout_maximum ||
             (outgoing_cmd.round_trip_timeout >= outgoing_cmd.round_trip_timeout_limit &&
-            service_time - peer.earliest_timeout >= peer.timeout_minimum)) {
+            host.service_time - peer.earliest_timeout >= peer.timeout_minimum)) {
 
             protocol_notify_disconnect_timeout(host, peer, event);
             return true;
@@ -556,12 +554,12 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         }
 
         // :Time
-        if list_empty(*peer.sent_reliable_commands) then peer.next_timeout = to_milliseconds(host.service_time) + outgoing_cmd.round_trip_timeout;
+        if list_empty(*peer.sent_reliable_commands) then peer.next_timeout = host.service_time + outgoing_cmd.round_trip_timeout;
 
         current_cmd = list_next(current_cmd);
         list_insert(list_end(*peer.sent_reliable_commands), list_remove(outgoing_cmd));
 
-        outgoing_cmd.sent_time = cast(u32)to_milliseconds(host.service_time);
+        outgoing_cmd.sent_time = cast(u32)host.service_time;
 
         buffer.data = cmd;
         buffer.length = cmd_size;
@@ -940,20 +938,18 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 }
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
-    service_time := to_milliseconds(host.service_time);
-
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;
 
     // :Time
     received_sent_time := cast(s64)net_to_host_endian(command.acknowledge.received_sent_time);
-    received_sent_time |= service_time & 0xFFFF0000;
-    if received_sent_time & 0x8000 > service_time & 0x8000 then received_sent_time -= 0x1000;
+    received_sent_time |= host.service_time & 0xFFFF0000;
+    if received_sent_time & 0x8000 > host.service_time & 0x8000 then received_sent_time -= 0x10000;
 
-    if service_time < received_sent_time then return .NONE;
+    if host.service_time < received_sent_time then return .NONE;
 
-    peer.last_received_time = service_time;
+    peer.last_received_time = host.service_time;
     peer.earliest_timeout = 0;
-    round_trip_time := service_time - received_sent_time;
+    round_trip_time := host.service_time - received_sent_time;
 
     peer_throttle(peer, round_trip_time);
     peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
@@ -972,12 +968,12 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
         peer.highest_round_trip_time_variance = peer.round_trip_time_variance;
     }
 
-    if peer.packet_throttle_epoch == 0 || service_time - peer.packet_throttle_epoch >= peer.packet_throttle_interval {
+    if peer.packet_throttle_epoch == 0 || host.service_time - peer.packet_throttle_epoch >= peer.packet_throttle_interval {
         peer.last_round_trip_time = peer.lowest_round_trip_time;
         peer.last_round_trip_time_variance = peer.highest_round_trip_time_variance;
         peer.lowest_round_trip_time = peer.round_trip_time;
         peer.highest_round_trip_time_variance = peer.round_trip_time_variance;
-        peer.packet_throttle_epoch = service_time;
+        peer.packet_throttle_epoch = host.service_time;
     }
 
     received_reliable_seq_number := net_to_host_endian(command.acknowledge.received_reliable_seq_number);

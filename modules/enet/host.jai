@@ -12,7 +12,7 @@ Host :: struct {
     duplicate_peers : u32;
 
     service_time_offset : Apollo_Time;
-    service_time        : Apollo_Time;
+    service_time        : s64;
 
     incoming_bandwidth : u32;
     outgoing_bandwidth : u32;
@@ -94,6 +94,8 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
     host.maximum_packet_size = HOST_DEFAULT_MAX_PACKET_SIZE;
     host.maximum_waiting_data = HOST_DEFAULT_MAX_WAITING_DATA; 
     host.service_time_offset = current_time_monotonic();
+
+    host_update_service_time(host);
 
     list_clear(*host.dispatch_queue);
 
@@ -200,12 +202,11 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         }
     }
 
-    host.service_time = current_time_monotonic() - host.service_time_offset;
-    service_time := to_milliseconds(host.service_time);
-    timeout += service_time;
+    host_update_service_time(host);
+    timeout += host.service_time;
 
     while true {
-        if service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
+        if host.service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
 
         send_outgoing :: () #expand {
             send_out_status := protocol_send_outgoing_commands(`host, `event, true);
@@ -238,21 +239,22 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 return .ERROR;
         }
 
-        if service_time >= timeout then return .NONE; 
+        if host.service_time >= timeout then return .NONE; 
 
         // Wait `timeout` amount of time for incoming packets
         while timeout > 0 {
-            host.service_time = current_time_monotonic() - host.service_time_offset;
-            service_time = to_milliseconds(host.service_time);
-            if service_time > timeout then return .NONE;
+            host_update_service_time(host);
+            if host.service_time > timeout then return .NONE;
 
             wait_condition = Socket_Wait.RECEIVE & .INTERRUPT;
-            if socket_wait(host.socket, *wait_condition, service_time - timeout) == .ERROR {
+            if socket_wait(host.socket, *wait_condition, host.service_time - timeout) == .ERROR {
                 return .ERROR;
             }
 
             if !(wait_condition & .INTERRUPT) then break;
         }
+
+        host_update_service_time(host);
 
         if !(wait_condition & .RECEIVE) break;
     }
@@ -275,7 +277,7 @@ host_send_raw :: (host: *Host, address: *Address, data: *$T) {
 }
 
 host_flush :: (host: *Host) {
-    host.service_time = current_time_monotonic();
+    host_update_service_time(host);
     protocol_send_outgoing_commands(host, null, false);
 }
 
@@ -446,5 +448,6 @@ host_bandwidth_throttle :: (host: *Host) {
     }
 }
 
-
-
+host_update_service_time :: (host: *Host) {
+    host.service_time = to_milliseconds(current_time_monotonic() - host.service_time_offset);
+}

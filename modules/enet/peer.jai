@@ -381,7 +381,7 @@ peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
 
     incoming_cmd := cast(*Incoming_Command)list_remove(list_begin(*peer.dispatched_commands));
 
-    if channel_id != null then <<channel_id = incoming_cmd.command.header.channel_id;
+    if channel_id != null then channel_id.* = incoming_cmd.command.header.channel_id;
 
     packet := incoming_cmd.packet;
     packet.ref_count -= 1;
@@ -424,7 +424,7 @@ peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet
 
     // print("Sending % to peer in:% out:%\n", cast(Protocol_Command)(command.header.command & PROTOCOL_COMMAND_MASK), peer.outgoing_peer_id, peer.incoming_peer_id ); 
 
-    outgoing_cmd.command = <<command;
+    outgoing_cmd.command = command.*;
     outgoing_cmd.fragment_offset = offset;
     outgoing_cmd.fragment_length = length;
     outgoing_cmd.packet = packet;
@@ -500,7 +500,7 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
     
     peer.outgoing_data_total += size_of(Acknowledgement);
     acknowledgement.sent_time = sent_time;
-    acknowledgement.command = <<command;
+    acknowledgement.command = command.*;
 
     list_insert(list_end(*peer.acknowledgements), acknowledgement);
     return acknowledgement;
@@ -618,7 +618,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
 
     incoming_cmd.reliable_seq_number = command.header.reliable_seq_number;
     incoming_cmd.unreliable_seq_number = cast(u16)(unreliable_seq_number & 0xFFFF);
-    incoming_cmd.command = <<command;
+    incoming_cmd.command = command.*;
     incoming_cmd.fragment_count = fragment_count;
     incoming_cmd.fragments_remaining = fragment_count;
     incoming_cmd.packet = packet;

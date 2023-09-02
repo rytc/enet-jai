@@ -95,18 +95,18 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
         time.tv_usec = cast(s32)(timeout % 1000) * 1000;
 
 
-        if <<condition & .SEND then FD_SET(socket, *write_set);
-        if <<condition & .RECEIVE then FD_SET(socket, *read_set);
+        if condition.* & .SEND then FD_SET(socket, *write_set);
+        if condition.* & .RECEIVE then FD_SET(socket, *read_set);
 
         select_count = select(cast(s32)(socket + 1), *read_set, *write_set, null, *time);
 
         if select_count < 0 then return .ERROR;
 
-        <<condition = .NONE;
+        condition.* = .NONE;
 
         if select_count == 0 then return .NONE;
-        if FD_ISSET(socket, *write_set) then <<condition |= .SEND;
-        if FD_ISSET(socket, *read_set) then <<condition |= .RECEIVE;
+        if FD_ISSET(socket, *write_set) then condition.* |= .SEND;
+        if FD_ISSET(socket, *read_set) then condition.* |= .RECEIVE;
 
     } else #if OS == .UNIX {
         poll_socket : pollfd;
@@ -115,14 +115,14 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
         poll_socket.fd     = socket;
         poll_socket.events = 0;
 
-        if <<condition & .WAIT_SEND then poll_socket.events |= POLLOUT;
-        if <<condition & .WAIT_RECEIVE then poll_socket.events |= POLLIN;
+        if condition.* & .WAIT_SEND then poll_socket.events |= POLLOUT;
+        if condition.* & .WAIT_RECEIVE then poll_socket.events |= POLLIN;
 
         poll_count = poll(*poll_socket, 1, timeout);
 
         if poll_count < 0 {
-            if errno() == EINTR && <<condition & .WAIT_INTERRUPT {
-                <<condition = .WAIT_INTERRUPT;
+            if errno() == EINTR && condition.* & .WAIT_INTERRUPT {
+                condition.* = .WAIT_INTERRUPT;
 
                 return .NONE;
             }
@@ -130,11 +130,11 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
             return .ERROR;
         }
 
-        <<condition = .WAIT_NONE;
+        condition.* = .WAIT_NONE;
 
         if poll_count == 0 then return .NONE;
-        if poll_socket.revents & POLLOUT then <<condition |= .WAIT_SEND;
-        if pollSocket.revents & POLLIN then <<condition |= .WAIT_RECEIVE;
+        if poll_socket.revents & POLLOUT then condition.* |= .WAIT_SEND;
+        if pollSocket.revents & POLLIN then condition.* |= .WAIT_RECEIVE;
     }
 
     return .NONE;

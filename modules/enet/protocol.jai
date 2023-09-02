@@ -567,7 +567,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         host.packet_size += cast(u32)buffer.length;
         host.header_flags |= PROTOCOL_FLAG_SENT_TIME;
 
-        <<cmd = outgoing_cmd.command;
+        cmd.* = outgoing_cmd.command;
 
         if outgoing_cmd.packet {
             buffer += 1;
@@ -645,7 +645,7 @@ protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) #no_abc
         buffer.data = command;
         buffer.length = cmd_size;
         host.packet_size += buffer.length;
-        <<command = outgoing_cmd.command;
+        command.* = outgoing_cmd.command;
         list_remove(outgoing_cmd);
 
         if outgoing_cmd.packet != null {
@@ -1139,9 +1139,9 @@ protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, 
     if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
 
     data_length := net_to_host_endian(command.send_reliable.data_length);
-    <<current_data += data_length;
+    current_data.* += data_length;
 
-    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
+    if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] return .ERROR;
 
     if peer_queue_incoming_command(peer, command, cast(*u8)(command) + size_of(Protocol_Send_Reliable), data_length, .RELIABLE, 0) == null return .ERROR;
 
@@ -1153,8 +1153,8 @@ protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol
     if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
 
     data_length := net_to_host_endian(command.send_unreliable.data_length);
-    <<current_data += data_length;
-    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
+    current_data.* += data_length;
+    if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] return .ERROR;
 
     if peer_queue_incoming_command(peer, command, (cast(*u8)command) + size_of(Protocol_Send_Unreliable), data_length, 0, 0) == null then return .ERROR;
 
@@ -1165,9 +1165,9 @@ protocol_handle_send_unsequenced :: (host: *Host, peer: *Peer, command: *Protoco
     if command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) return .ERROR;
 
     data_length := net_to_host_endian(command.send_unsequenced.data_length);
-    <<current_data += data_length;
+    current_data.* += data_length;
     
-    if data_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] return .ERROR;
+    if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] return .ERROR;
 
     unsequenced_group := cast(s64)net_to_host_endian(command.send_unsequenced.unsequenced_group);
     index := unsequenced_group % PEER_UNSEQUENCED_WINDOW_SIZE;
@@ -1194,9 +1194,9 @@ protocol_handle_send_fragment :: (host: *Host, peer: *Peer, command: *Protocol, 
     if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
 
     fragment_length := net_to_host_endian(command.send_fragment.data_length);
-    <<current_data += fragment_length;
+    current_data.* += fragment_length;
 
-    if fragment_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] then return .ERROR;
+    if fragment_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] then return .ERROR;
 
     channel := *peer.channels[command.header.channel_id];
     start_seq_number := net_to_host_endian(command.send_fragment.start_seq_number);
@@ -1242,7 +1242,7 @@ protocol_handle_send_fragment :: (host: *Host, peer: *Peer, command: *Protocol, 
     }
 
     if start_cmd == null {
-        host_cmd := <<command;
+        host_cmd := command.*;
         host_cmd.header.reliable_seq_number = start_seq_number;
         start_cmd = peer_queue_incoming_command(peer, *host_cmd, null, total_length, .RELIABLE, fragment_count);
         if start_cmd == null then return .ERROR;
@@ -1268,9 +1268,9 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
     if command.header.channel_id >= peer.channels.count || (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) then return .ERROR;
 
     fragment_length := net_to_host_endian(command.send_fragment.data_length);
-    <<current_data += fragment_length;
+    current_data.* += fragment_length;
 
-    if fragment_length > host.maximum_packet_size || <<current_data < host.received_data || <<current_data > *host.received_data[host.received_data_length] {
+    if fragment_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] {
         return .ERROR;
     }
 

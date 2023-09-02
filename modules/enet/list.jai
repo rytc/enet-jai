@@ -43,7 +43,7 @@ list_insert :: (position: *List_Node, data: *List_Node) -> List_Node {
     data.prev.next = data;
     position.prev = data;
 
-    return <<data;
+    return data.*;
 }
 
 list_move :: (list: *List_Node, first: *List_Node, last: *List_Node) -> *List_Node {

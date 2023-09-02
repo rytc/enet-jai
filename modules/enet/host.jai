@@ -74,7 +74,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
     set_socket_options(host.socket, .IPV6_V6ONLY, 0);
 
     if address != null && !get_socket_address(host.socket, *host.address) {
-        host.address = <<address;
+        host.address = address.*;
     }
 
     if channel_limit == 0 || channel_limit > PROTOCOL_MAX_CHANNEL_COUNT {

@@ -44,6 +44,8 @@ main :: () {
                     print("Received event %\n", event.type);
             }
         }
+
+        sleep_milliseconds(16);
     }
 }
 

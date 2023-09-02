@@ -140,9 +140,9 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
     return .NONE;
 }
 
-socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: s32) -> s32 {
+socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> s32 {
     sin : sockaddr_in6;
-    sent_length : s32;
+    sent_length : u32;
 
     #if OS == .WINDOWS {
         if address != null {
@@ -152,7 +152,7 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
             sin.sin6_scope_id = address.sin6_scope_id;
         }
 
-        if WSASendTo(socket, cast(*WSABUF)buffers.data, xx buffer_count, cast(*u32)*sent_length, 0, 
+        if WSASendTo(socket, cast(*WSABUF)buffers.data, xx buffer_count, *sent_length, 0, 
             ifx address then cast(*sockaddr)*sin else null,
             ifx address then cast(s32)size_of(sockaddr_in6) else cast(s32)0,
             null, null) == SOCKET_ERROR {
@@ -184,7 +184,7 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
         }
     }
 
-    return sent_length;
+    return cast(s32)sent_length;
 }
 
 socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> s32 {

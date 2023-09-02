@@ -1,46 +1,46 @@
 
 Host :: struct {
-    peers:                   []Peer;
-    connected_peers:         u32;
+    peers : [] Peer;
+    connected_peers : u32;
     bandwidth_limited_peers: u32;
-    socket:                  Socket;
-    address:                 Address;
-    received_address:        Address;
-    random_seed:             u32;
-    channel_limit:           u32;
-    mtu:                     u32;
-    duplicate_peers:         u32;
+    socket : Socket;
+    address : Address;
+    received_address : Address;
+    random_seed : u32;
+    channel_limit : u32;
+    mtu : u32;
+    duplicate_peers : u32;
 
-    service_time_offset:     Apollo_Time;
-    service_time:            s64;
+    service_time_offset : Apollo_Time;
+    service_time        : Apollo_Time;
 
-    incoming_bandwidth:           u32;
-    outgoing_bandwidth:           u32;
-    bandwidth_throttle_epoch:     s64;
-    recalculate_bandwidth_limits: bool;
+    incoming_bandwidth : u32;
+    outgoing_bandwidth : u32;
+    bandwidth_throttle_epoch : s64;
+    recalculate_bandwidth_limits : bool;
 
-    commands:      [PROTOCOL_MAX_PACKET_COMMANDS]Protocol;
-    command_count: s32;
+    commands : [PROTOCOL_MAX_PACKET_COMMANDS]Protocol;
+    command_count: u32;
 
     header_flags: u32;
-    buffers:      [MAX_BUFFER_COUNT]Buffer;
-    buffer_count: s32;
+    buffers : [MAX_BUFFER_COUNT]Buffer;
+    buffer_count : u32;
 
-    total_sent_packets: u32;
-    total_sent_data:    u64;
+    total_sent_packets : u32;
+    total_sent_data : u64;
 
-    maximum_packet_size:    u32;
-    packet_data:            [2 * PROTOCOL_MAX_MTU]u8; // 2D array in c, need to manually offset by PROTOCOL_MAX_MTU
-    packet_size:            u32;
-    total_received_packets: u32;
+    maximum_packet_size : u32;
+    packet_data : [2 * PROTOCOL_MAX_MTU]u8; // 2D array in c, need to manually offset by PROTOCOL_MAX_MTU
+    packet_size : u32;
+    total_received_packets  : u32;
 
-    received_data:              *u8;
-    received_data_length:       u32;
-    total_received_data_length: u32;
-    maximum_waiting_data:       u32;
+    received_data : *u8;
+    received_data_length : u32;
+    total_received_data_length : u32;
+    maximum_waiting_data : u32;
 
-    continue_sending: bool;
-    dispatch_queue:   List;
+    continue_sending : bool;
+    dispatch_queue : List;
 }
 
 host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming_bandwidth: int, outgoing_bandwidth: int) -> *Host, bool {
@@ -184,6 +184,8 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
 // timeout: milliseconds to wait for incoming packets. Zero means it won't wait and will return immediately
 // Returns SUCCESS if it handled an incoming command. There may be more commands to handle on SUCCESS
 host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
+    wait_condition : Socket_Wait;
+
     if event {
         event.type = .NONE;
         event.peer = null;
@@ -198,11 +200,12 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         }
     }
 
-    host_update_service_time(host);
-    timeout += host.service_time;
+    host.service_time = current_time_monotonic() - host.service_time_offset;
+    service_time := to_milliseconds(host.service_time);
+    timeout += service_time;
 
     while true {
-        if host.service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
+        if service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
 
         send_outgoing :: () #expand {
             send_out_status := protocol_send_outgoing_commands(`host, `event, true);
@@ -235,24 +238,21 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 return .ERROR;
         }
 
-        if host.service_time >= timeout then return .NONE; 
+        if service_time >= timeout then return .NONE; 
 
-        wait_condition : Socket_Wait;
-
-        while true {
-            host_update_service_time(host);
-
-            if host.service_time >= timeout then return .NONE;
+        // Wait `timeout` amount of time for incoming packets
+        while timeout > 0 {
+            host.service_time = current_time_monotonic() - host.service_time_offset;
+            service_time = to_milliseconds(host.service_time);
+            if service_time > timeout then return .NONE;
 
             wait_condition = Socket_Wait.RECEIVE & .INTERRUPT;
-            if socket_wait(host.socket, *wait_condition, host.service_time - timeout) == .ERROR {
+            if socket_wait(host.socket, *wait_condition, service_time - timeout) == .ERROR {
                 return .ERROR;
             }
 
             if !(wait_condition & .INTERRUPT) then break;
         }
-
-        host_update_service_time(host);
 
         if !(wait_condition & .RECEIVE) break;
     }
@@ -275,7 +275,7 @@ host_send_raw :: (host: *Host, address: *Address, data: *$T) {
 }
 
 host_flush :: (host: *Host) {
-    host_update_service_time(host);
+    host.service_time = current_time_monotonic();
     protocol_send_outgoing_commands(host, null, false);
 }
 
@@ -315,6 +315,7 @@ HOST_DEFAULT_MTU                  :: 1400;
 HOST_DEFAULT_MAX_PACKET_SIZE      :: 32 * 1024 * 1024;
 HOST_DEFAULT_MAX_WAITING_DATA     :: 32 * 1024 * 1024;
 HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
+
 
 host_bandwidth_throttle :: (host: *Host) {
     current_time := current_time_monotonic();
@@ -443,10 +444,6 @@ host_bandwidth_throttle :: (host: *Host) {
             peer_queue_outgoing_command(peer, *command, null, 0, 0);
         }
     }
-}
-
-host_update_service_time :: (host: *Host) {
-    host.service_time = to_milliseconds(current_time_monotonic() - host.service_time_offset);
 }
 
 

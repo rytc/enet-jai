@@ -1,12 +1,3 @@
-
-// @TODO make sure time functionality is ok...
-// Not sure if I should store apollo time or just to_milliseconds(current_time_monotonic())
-// ...
-// I think it might be better to store milliseconds. Make a get time procedure that does to milliseconds,
-// because we end up calling to_milliseconds every time we want to use/compare the host time to packet data
-// and this might be slow
-//
-
 HOST_ANY :: V6_ANY_ADDR;
 
 Event_Type :: enum {

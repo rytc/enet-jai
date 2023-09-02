@@ -66,7 +66,6 @@ main :: () {
             counter += 1;
         }
 
-        sleep_milliseconds(16); // Simulate a game fame / vsync
     }
 }
 

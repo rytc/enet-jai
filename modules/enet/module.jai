@@ -177,42 +177,44 @@ channel_reset :: (channel: *Channel) {
 
 // Should match WSABUF
 Buffer :: struct {
-    length : u32;
-    data   : *void;
-}
-
-Acknowledgement :: struct {
-    #as using list : List_Node;
-    sent_time      : u32; // :Time
-    command        : Protocol;
+    length: u32;
+    data:   *void;
 }
 
 Command :: struct {
-    #as using list : List_Node;
-    packet         : *Packet;
+    #as using list: List_Node;
+
+    packet: *Packet;
+    command: Protocol;
+}
+
+Acknowledgement :: struct {
+    #as using list: List_Node;
+
+    sent_time:  u32; // :Time
+    command:    Protocol;
 }
 
 Incoming_Command :: struct {
-    #as using base        : Command;
-    reliable_seq_number   : u16;
-    unreliable_seq_number : u16;
-    command               : Protocol;
-    fragment_count        : u32;
-    fragments_remaining   : u32;
-    fragments             : []u32;
+    #as using base: Command;
+
+    reliable_seq_number:   u16;
+    unreliable_seq_number: u16;
+    fragment_count:        u32;
+    fragments_remaining:   u32;
+    fragments:             []u32;
 }
 
 Outgoing_Command :: struct {
-    #as using base           : Command;
-    reliable_seq_number      : u16;
-    unreliable_seq_number    : u16;
-    sent_time                : u32;
-    round_trip_timeout       : s64;
-    round_trip_timeout_limit : s64;
-    fragment_offset          : u32;
-    fragment_length          : u16;
-    send_attempts            : u16;
-    command                  : Protocol;
+    #as using base: Command;
+    reliable_seq_number:      u16;
+    unreliable_seq_number:    u16;
+    sent_time:                u32;
+    round_trip_timeout:       s64;
+    round_trip_timeout_limit: s64;
+    fragment_offset:          u32;
+    fragment_length:          u16;
+    send_attempts:            u16;
 }
 
 random_seed :: () -> u64 {

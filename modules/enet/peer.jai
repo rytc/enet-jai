@@ -288,7 +288,6 @@ peer_reset :: (peer: *Peer) {
 }
 
 peer_reset_queues :: (peer: *Peer) {
-    
     if peer.needs_dispatch {
         list_remove(*peer.dispatch_list);
         peer.needs_dispatch = false;
@@ -333,26 +332,26 @@ peer_reset_incoming_commands :: (list: *List) {
 
 #scope_module
 
-PEER_WINDOW_SIZE_SCALE            :: 64 * 1024;
-PEER_RELIABLE_WINDOWS          :u16: 16;
-PEER_RELIABLE_WINDOW_SIZE         :: 0x1000;
+PEER_DEFAULT_ROUND_TRIP_TIME      :: 500;
 PEER_DEFAULT_PACKET_THROTTLE      :: 32;
 PEER_PACKET_THROTTLE_SCALE        :: 32;
+PEER_PACKET_THROTTLE_COUNTER      :: 7;
 PEER_PACKET_THROTTLE_ACCELERATION :: 2;
 PEER_PACKET_THROTTLE_DECELERATION :: 2;
 PEER_PACKET_THROTTLE_INTERVAL     :: 5000;
-PEER_PACKET_LOSS_INTERVAL         :: 10000;
 PEER_PACKET_LOSS_SCALE            :: (1 << 16);
-PEER_FREE_RELIABLE_WINDOWS        :: 8;
+PEER_PACKET_LOSS_INTERVAL         :: 10000;
+PEER_WINDOW_SIZE_SCALE            :: 64 * 1024;
 PEER_TIMEOUT_LIMIT                :: 32;
 PEER_TIMEOUT_MINIMUM              :: 5000;
 PEER_TIMEOUT_MAXIMUM              :: 30000;
-PEER_DEFAULT_ROUND_TRIP_TIME      :: 500;
-PEER_PING_INTERVAL                :: 800;
-PEER_PACKET_THROTTLE_COUNTER      :: 7;
-PEER_UNSEQUENCED_WINDOW_SIZE      :: 1024;
+PEER_PING_INTERVAL                :: 500;
 PEER_UNSEQUENCED_WINDOWS          :: 64;
+PEER_UNSEQUENCED_WINDOW_SIZE      :: 1024;
 PEER_FREE_UNSEQUENCED_WINDOWS     :: 32;
+PEER_RELIABLE_WINDOWS          :u16: 16;
+PEER_RELIABLE_WINDOW_SIZE         :: 0x1000;
+PEER_FREE_RELIABLE_WINDOWS        :: 8;
 
 DUMMY_COMMAND : Incoming_Command; 
 
@@ -480,8 +479,6 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         list_insert(list_end(*peer.outgoing_unreliable_commands), outgoing_cmd);
     }
 }
-
-
 
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
     if command.header.channel_id < peer.channels.count {

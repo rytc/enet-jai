@@ -197,8 +197,8 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
     host.continue_sending = true;
 
     while host.continue_sending {
+        host.continue_sending = false;
         for * peer: host.peers {
-            host.continue_sending = false;
             if peer.state == .DISCONNECTED || peer.state == .ZOMBIE then continue;
 
             host.header_flags = 0;

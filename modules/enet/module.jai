@@ -95,6 +95,7 @@ packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIA
 
     packet.flags = flags;
     packet.data_length = cast(u32)data_length;
+    packet.ref_count = 0;
 
     return packet;
 }

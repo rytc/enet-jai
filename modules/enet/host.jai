@@ -318,7 +318,7 @@ HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
 
 host_bandwidth_throttle :: (host: *Host) {
     current_time := current_time_monotonic();
-    current_time_ms := to_microseconds(current_time);
+    current_time_ms := to_milliseconds(current_time);
     elapsed_time := current_time_ms - host.bandwidth_throttle_epoch;
     remaining_peers := host.connected_peers;
     data_total :u32 = U32_MAX;

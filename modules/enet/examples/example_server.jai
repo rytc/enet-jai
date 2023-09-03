@@ -1,4 +1,4 @@
-
+#import "Basic";
 enet :: #import "enet";
 
 main :: () {
@@ -44,11 +44,7 @@ main :: () {
                     print("Received event %\n", event.type);
             }
         }
-
-        sleep_milliseconds(16);
     }
 }
 
-#scope_file
-#import "Basic";
 

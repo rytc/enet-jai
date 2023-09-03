@@ -1,3 +1,8 @@
+#import "Basic";
+enet :: #import "enet";
+
+SERVER_ADDRESS :: "127.0.0.1";
+SERVER_PORT    :: 1234;
 
 main :: () {
     if !enet.initialize() {
@@ -50,30 +55,16 @@ main :: () {
             }
         }
 
-        if counter == {
-            case 1;
-                // The module will free the packet once it gets sent, so a new packet needs to be created every time
-                packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
-                enet.peer_send(peer, 0, packet);
-            case 2; 
-                packet_unreliable := enet.packet_create(msg2.data, msg2.count, .UNRELIABLE_FRAGMENT);
-                enet.peer_send(peer, 0, packet_unreliable);
-            case 100; // Have to give enough time for both packets to send
-                enet.peer_disconnect(peer, 0);
+        if counter % 20 == 0 {
+            packet_unreliable := enet.packet_create(msg2.data, msg2.count, .UNRELIABLE_FRAGMENT);
+            enet.peer_send(peer, 0, packet_unreliable);
+        } else if counter % 30 == 0 {
+            packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
+            enet.peer_send(peer, 0, packet);
         }
 
-        if counter > 0 {
-            counter += 1;
-        }
-
-        sleep_milliseconds(16); // Simulate a game fame / vsync
+        counter += 1;
     }
 }
 
-#scope_file
-#import "Basic";
-enet :: #import "enet";
-
-SERVER_ADDRESS :: "127.0.0.1";
-SERVER_PORT    :: 1234;
 

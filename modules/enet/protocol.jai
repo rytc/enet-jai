@@ -1161,7 +1161,6 @@ protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol
     current_data.* += data_length;
 
     if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] {
-        print("bad data length\n");
         return .ERROR;
     }
 

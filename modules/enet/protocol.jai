@@ -442,17 +442,14 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
         outgoing_cmd := cast(*Outgoing_Command)current_cmd;
         current_cmd = list_next(current_cmd);
 
-        // :Time
         if host.service_time - outgoing_cmd.sent_time < outgoing_cmd.round_trip_timeout {
             continue;
         }
 
-        // :Time
         if peer.earliest_timeout == 0 || outgoing_cmd.sent_time < peer.earliest_timeout {
             peer.earliest_timeout = outgoing_cmd.sent_time;
         }
 
-        // :Time
         if peer.earliest_timeout != 0 && (
             host.service_time - peer.earliest_timeout >= peer.timeout_maximum ||
             (outgoing_cmd.round_trip_timeout >= outgoing_cmd.round_trip_timeout_limit &&
@@ -559,7 +556,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         current_cmd = list_next(current_cmd);
         list_insert(list_end(*peer.sent_reliable_commands), list_remove(outgoing_cmd));
 
-        outgoing_cmd.sent_time = cast(u32)host.service_time;
+        outgoing_cmd.sent_time = host.service_time;
 
         buffer.data = cmd;
         buffer.length = cmd_size;

@@ -198,7 +198,7 @@ Outgoing_Command :: struct {
     #as using base           : Command;
     reliable_seq_number      : u16;
     unreliable_seq_number    : u16;
-    sent_time                : u32;
+    sent_time                : s64;
     round_trip_timeout       : s64;
     round_trip_timeout_limit : s64;
     fragment_offset          : u32;

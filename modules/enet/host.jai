@@ -193,13 +193,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         event.peer = null;
         event.packet = null;
 
-        dispatch_result := protocol_dispatch_incoming_commands(host, event);
-        if dispatch_result == {
-            case .SUCCESS; return .SUCCESS;
-            case -1;
-                log_error("[enet] Error dispatching incoming packets\n");
-                return .ERROR;
-        }
+        if protocol_dispatch_incoming_commands(host, event) == .SUCCESS return .SUCCESS;
     }
 
     host_update_service_time(host);
@@ -214,7 +208,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS;
                     `return .SUCCESS;
                 case .ERROR;
-                    log_error("[enet] Error sending outgoing packets\n");
+                    // log_error("[enet] Error sending outgoing packets\n");
                     `return .ERROR;
             }
         }
@@ -225,7 +219,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         if receive_in_status == {
             case .SUCCESS; return .SUCCESS;
             case .ERROR;
-                log_error("[enet] Error receiving incoming packets\n");
+                // log_error("[enet] Error receiving incoming packets\n");
                 return .ERROR;
         }
 
@@ -235,7 +229,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         if dispatch_incoming_status == {
             case .SUCCESS; return .SUCCESS;
             case .ERROR;
-                log_error("[enet] Error dispatching incoming commands\n");
+                // log_error("[enet] Error dispatching incoming commands\n");
                 return .ERROR;
         }
 

@@ -216,7 +216,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 protocol_check_timeouts(host, peer, event) == true {
 
                 if event != null && event.type != .NONE { 
-                    return .FAILURE;
+                    return .SUCCESS;
                 } else {
                     continue;
                 }
@@ -311,7 +311,6 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
 }
 
 protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Status {
-
     for 0..255 {
         buffer : [1]Buffer;
         buffer[0].data = *host.packet_data[0];
@@ -320,8 +319,8 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Sta
         received_length := socket_receive(host.socket, *host.received_address, buffer, 1);
 
         if received_length == -2 continue;
-        if received_length < 0 return -1;
-        if received_length == 0 return 0;
+        if received_length < 0 return .ERROR;
+        if received_length == 0 return .NONE;
 
         host.received_data = *host.packet_data[0];
         host.received_data_length = xx received_length;
@@ -338,6 +337,7 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Sta
             case .ERROR; return .ERROR;
         }
     }
+
 
     return .ERROR;
 }
@@ -378,9 +378,9 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> Result_St
 
                 if !list_empty(*peer.dispatched_commands) {
                     peer.needs_dispatch = true;
+                    list_insert(list_end(*host.dispatch_queue), *peer.dispatch_list);
                 }
 
-                list_insert(list_end(*host.dispatch_queue), *peer.dispatch_list);
                 return .SUCCESS;
         }
     }
@@ -405,7 +405,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
         }
 
         ack := cast(*Acknowledgement)current_ack;
-        current_ack = cast(*Acknowledgement)list_next(current_ack);
+        current_ack = list_next(current_ack);
 
         buffer.data = command;
         buffer.length = size_of(Protocol_Acknowledge);
@@ -839,7 +839,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
     if peer_id == PROTOCOL_MAX_PEER_ID {
         peer = null;
     } else if peer_id >= host.peers.count {
-        return .ERROR;
+        return .NONE;
     } else {
         peer = *host.peers[peer_id];
 
@@ -870,12 +870,12 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
     }
 
     current_data := host.received_data + header_size;
+    command : *Protocol;
 
     while current_data < host.received_data + host.received_data_length {
+        command = cast(*Protocol)current_data;
 
-        command := cast(*Protocol)current_data;
-
-        if current_data + size_of(Protocol_Command_Header)  > host.received_data + host.received_data_length {
+        if current_data + size_of(Protocol_Command_Header) > host.received_data + host.received_data_length {
             break;
         }
 
@@ -884,32 +884,36 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
         command_size := protocol_command_size(command_number);
 
-        if command_size == 0 || current_data + command_size > host.received_data + host.received_data_length break;
+        if command_size == 0 || current_data + command_size > host.received_data + host.received_data_length {
+            break;
+        }
 
         current_data += command_size;
 
-        if peer == null && (command_number != .CONNECT || current_data < host.received_data + host.received_data_length) break;
+        if peer == null && (command_number != .CONNECT || current_data < host.received_data + host.received_data_length) {
+            break;
+        }
 
         command.header.reliable_seq_number = net_to_host_endian(command.header.reliable_seq_number);
 
         // print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
 
         if command_number == {
-            case .ACKNOWLEDGE; protocol_handle_acknowledge(host, event, peer, command);
+            case .ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) != .NONE then break;
             case .CONNECT; 
                 if peer != null  continue;
                 peer = protocol_handle_connect(host, header, command);
                 if peer == null break;
-            case .VERIFY_CONNECT;   protocol_handle_verify_connect(host, event, peer, command);
-            case .DISCONNECT;       protocol_handle_disconnect(host, peer, command);
-            case .PING;             protocol_handle_ping(host, peer, command);
-            case .SEND_RELIABLE;    protocol_handle_send_reliable(host, peer, command, *current_data);
-            case .SEND_UNRELIABLE;  protocol_handle_send_unreliable(host, peer, command, *current_data);
-            case .SEND_UNSEQUENCED; protocol_handle_send_unsequenced(host, peer, command, *current_data); 
-            case .SEND_FRAGMENT;    protocol_handle_send_fragment(host, peer, command, *current_data);
-            case .BANDWIDTH_LIMIT;  protocol_handle_bandwidth_limit(host, peer, command);
-            case .THROTTLE_CONFIGURE; protocol_handle_throttle_configure(host, peer, command);
-            case .SEND_UNRELIABLE_FRAGMENT; protocol_handle_send_unreliable_fragment(host, peer, command, *current_data);
+            case .VERIFY_CONNECT;   if protocol_handle_verify_connect(host, event, peer, command) != .NONE then break;
+            case .DISCONNECT;       if protocol_handle_disconnect(host, peer, command) != .NONE then break;
+            case .PING;             if protocol_handle_ping(host, peer, command) != .NONE then break;
+            case .SEND_RELIABLE;    if protocol_handle_send_reliable(host, peer, command, *current_data) != .NONE then break;
+            case .SEND_UNRELIABLE;  if protocol_handle_send_unreliable(host, peer, command, *current_data) != .NONE then break;
+            case .SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) != .NONE then break;
+            case .SEND_FRAGMENT;    if protocol_handle_send_fragment(host, peer, command, *current_data) != .NONE then break;
+            case .BANDWIDTH_LIMIT;  if protocol_handle_bandwidth_limit(host, peer, command) != .NONE then break;
+            case .THROTTLE_CONFIGURE; if protocol_handle_throttle_configure(host, peer, command) != .NONE then break;
+            case .SEND_UNRELIABLE_FRAGMENT; if protocol_handle_send_unreliable_fragment(host, peer, command, *current_data) !=.NONE then break;
             case; break;
         }
 
@@ -936,6 +940,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
     return .NONE;
 }
+
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;
@@ -1154,7 +1159,11 @@ protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol
 
     data_length := net_to_host_endian(command.send_unreliable.data_length);
     current_data.* += data_length;
-    if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] return .ERROR;
+
+    if data_length > host.maximum_packet_size || current_data.* < host.received_data || current_data.* > *host.received_data[host.received_data_length] {
+        print("bad data length\n");
+        return .ERROR;
+    }
 
     if peer_queue_incoming_command(peer, command, (cast(*u8)command) + size_of(Protocol_Send_Unreliable), data_length, 0, 0) == null then return .ERROR;
 

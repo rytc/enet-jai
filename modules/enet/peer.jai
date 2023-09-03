@@ -269,7 +269,17 @@ peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max:
 peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 
+    host := peer.host;
+    incoming_peer_id := peer.incoming_peer_id;
+
+    peer.* = Peer.{};
+    peer.host = host;
+    peer.incoming_peer_id = peer.incoming_peer_id;
+    peer.outgoing_session_id = 0xFF;
+    peer.incoming_session_id = 0xFF;
+
     peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
+    peer.state = .DISCONNECTED;
     peer.timeout_limit = PEER_TIMEOUT_LIMIT;
     peer.timeout_minimum        = PEER_TIMEOUT_MINIMUM;
     peer.timeout_maximum        = PEER_TIMEOUT_MAXIMUM;
@@ -283,6 +293,13 @@ peer_reset :: (peer: *Peer) {
     peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
     peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
     peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
+
+    list_clear(*peer.outgoing_reliable_commands);
+    list_clear(*peer.outgoing_unreliable_commands);
+    list_clear(*peer.sent_reliable_commands);
+    list_clear(*peer.sent_unreliable_commands);
+    list_clear(*peer.acknowledgements);
+    list_clear(*peer.dispatched_commands);
 
     peer_reset_queues(peer);
 }

@@ -59,7 +59,7 @@ socket_bind :: (socket: Socket, address: *Address) -> int {
     sin.sin6_family = AF_INET6;
 
     if address {
-        sin.sin6_port = host_to_net_endian(address.port);
+        sin.sin6_port = host_to_net_endian_16(address.port);
         sin.sin6_addr = address.host;
         sin.sin6_scope_id = address.sin6_scope_id;
     } else {
@@ -147,7 +147,7 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
     #if OS == .WINDOWS {
         if address != null {
             sin.sin6_family = AF_INET6;
-            sin.sin6_port = host_to_net_endian(address.port);
+            sin.sin6_port = host_to_net_endian_16(address.port);
             sin.sin6_addr = address.host;
             sin.sin6_scope_id = address.sin6_scope_id;
         }
@@ -164,7 +164,7 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
 
         if address != null {
             sin.sin6_family = AF_INET6;
-            sin.sin6_port = host_to_net_endian(address.port);
+            sin.sin6_port = host_to_net_endian_16(address.port);
             sin.sin6_addr = address.host;
             sin.sin6_scope_id = address.sin6_scope_id;
 
@@ -216,7 +216,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
 
         if address {
             address.host           = sin.sin6_addr;
-            address.port           = net_to_host_endian(sin.sin6_port);
+            address.port           = net_to_host_endian_16(sin.sin6_port);
             address.sin6_scope_id  = xx sin.sin6_scope_id;
         }
 
@@ -240,7 +240,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
 
         if address != null {
             address.host           = sin.sin6_addr;
-            address.port           = net_to_host_endian(sin.sin6_port);
+            address.port           = net_to_host_endian_16(sin.sin6_port);
             address.sin6_scope_id  = xx sin.sin6_scope_id;
         }
     }

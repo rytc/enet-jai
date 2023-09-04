@@ -117,10 +117,10 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
             channel.outgoing_unreliable_seq_number < 0xFFFF {
 
             command_number = .SEND_UNRELIABLE_FRAGMENT;
-            start_seq_number = host_to_net_endian(channel.outgoing_unreliable_seq_number + 1);
+            start_seq_number = host_to_net_endian_16(channel.outgoing_unreliable_seq_number + 1);
         } else {
             command_number = .SEND_FRAGMENT_ACKNOWLEDGE;
-            start_seq_number = host_to_net_endian(channel.outgoing_reliable_seq_number + 1);
+            start_seq_number = host_to_net_endian_16(channel.outgoing_reliable_seq_number + 1);
         }
 
         fragments : List;
@@ -147,11 +147,11 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
 
             fragment.command.send_fragment.start_seq_number = start_seq_number;
 
-            fragment.command.send_fragment.data_length = host_to_net_endian(fragment_length);
-            fragment.command.send_fragment.fragment_count = host_to_net_endian(fragment_count);
-            fragment.command.send_fragment.fragment_number = host_to_net_endian(fragment_number);
-            fragment.command.send_fragment.total_length = host_to_net_endian(packet.data_length);
-            fragment.command.send_fragment.fragment_offset = host_to_net_endian(fragment_offset);
+            fragment.command.send_fragment.data_length = host_to_net_endian_16(fragment_length);
+            fragment.command.send_fragment.fragment_count = host_to_net_endian_32(fragment_count);
+            fragment.command.send_fragment.fragment_number = host_to_net_endian_32(fragment_number);
+            fragment.command.send_fragment.total_length = host_to_net_endian_32(packet.data_length);
+            fragment.command.send_fragment.fragment_offset = host_to_net_endian_32(fragment_offset);
             
             list_insert(list_end(*fragments), fragment);
 
@@ -175,13 +175,13 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
 
     if packet.flags & (Packet_Flags.RELIABLE | .UNSEQUENCED) == .UNSEQUENCED {
         command.header.command = Protocol_Command.SEND_UNSEQUENCED | .FLAG_UNSEQUENCED;
-        command.send_unsequenced.data_length = host_to_net_endian(cast(u16)packet.data_length);
+        command.send_unsequenced.data_length = host_to_net_endian_16(cast(u16)packet.data_length);
     } else if packet.flags & Packet_Flags.RELIABLE || channel.outgoing_unreliable_seq_number >= 0xFFFF {
         command.header.command = .SEND_RELIABLE_ACKNOWLEDGE;
-        command.send_reliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+        command.send_reliable.data_length = host_to_net_endian_16(cast(u16)packet.data_length);
     } else {
         command.header.command = .SEND_UNRELIABLE;
-        command.send_unreliable.data_length = host_to_net_endian(cast(u16)packet.data_length);
+        command.send_unreliable.data_length = host_to_net_endian_16(cast(u16)packet.data_length);
     }
 
     if peer_queue_outgoing_command(peer, *command, packet, 0, xx packet.data_length) == null then return .ERROR;
@@ -198,7 +198,7 @@ peer_disconnect :: (peer: *Peer, data: u32) {
     command : Protocol;
     command.header.command = .DISCONNECT;
     command.header.channel_id = 0xFF;
-    command.disconnect.data = host_to_net_endian(data);
+    command.disconnect.data = host_to_net_endian_32(data);
 
     if peer.state == .CONNECTED || peer.state == .DISCONNECT_LATER {
         command.header.command |= Protocol_Command.FLAG_ACKNOWLEDGE;
@@ -482,13 +482,13 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     outgoing_cmd.sent_time = 0;
     outgoing_cmd.round_trip_timeout = 0;
     outgoing_cmd.round_trip_timeout_limit = 0;
-    outgoing_cmd.command.header.reliable_seq_number = host_to_net_endian(outgoing_cmd.reliable_seq_number);
+    outgoing_cmd.command.header.reliable_seq_number = host_to_net_endian_16(outgoing_cmd.reliable_seq_number);
 
     if outgoing_cmd.command.header.command & .MASK == {
         case .SEND_UNRELIABLE;
-            outgoing_cmd.command.send_unreliable.unreliable_seq_number = host_to_net_endian(outgoing_cmd.unreliable_seq_number);
+            outgoing_cmd.command.send_unreliable.unreliable_seq_number = host_to_net_endian_16(outgoing_cmd.unreliable_seq_number);
         case .SEND_UNSEQUENCED;
-            outgoing_cmd.command.send_unsequenced.unsequenced_group = host_to_net_endian(peer.outgoing_unsequenced_group);
+            outgoing_cmd.command.send_unsequenced.unsequenced_group = host_to_net_endian_16(peer.outgoing_unsequenced_group);
     }    
 
     if outgoing_cmd.command.header.command & .FLAG_ACKNOWLEDGE {
@@ -593,7 +593,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
             }
         case .SEND_UNRELIABLE; #through;
         case .SEND_UNRELIABLE_FRAGMENT;
-            unreliable_seq_number = net_to_host_endian(command.send_unreliable.unreliable_seq_number);
+            unreliable_seq_number = net_to_host_endian_16(command.send_unreliable.unreliable_seq_number);
 
             if reliable_seq_number == channel.incoming_reliable_seq_number && unreliable_seq_number <= channel.incoming_unreliable_seq_number do_error(true);
 

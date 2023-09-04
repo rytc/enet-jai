@@ -164,19 +164,19 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
     command : Protocol;
     command.header.command                       = Protocol_Command.CONNECT | .FLAG_ACKNOWLEDGE;
     command.header.channel_id                    = 0xFF;
-    command.connect.outgoing_peer_id             = host_to_net_endian(current_peer.incoming_peer_id);
+    command.connect.outgoing_peer_id             = host_to_net_endian_16(current_peer.incoming_peer_id);
     command.connect.incoming_session_id          = current_peer.incoming_session_id;
     command.connect.outgoing_session_id          = current_peer.outgoing_session_id;
-    command.connect.mtu                          = host_to_net_endian(current_peer.mtu);
-    command.connect.window_size                  = host_to_net_endian(current_peer.window_size);
-    command.connect.channel_count                = host_to_net_endian(cast(u32)channel_count);
-    command.connect.incoming_bandwidth           = host_to_net_endian(cast(u32)host.incoming_bandwidth);
-    command.connect.outgoing_bandwidth           = host_to_net_endian(cast(u32)host.outgoing_bandwidth);
-    command.connect.packet_throttle_interval     = host_to_net_endian(current_peer.packet_throttle_interval);
-    command.connect.packet_throttle_acceleration = host_to_net_endian(current_peer.packet_throttle_acceleration);
-    command.connect.packet_throttle_deceleration = host_to_net_endian(current_peer.packet_throttle_deceleration);
+    command.connect.mtu                          = host_to_net_endian_32(current_peer.mtu);
+    command.connect.window_size                  = host_to_net_endian_32(current_peer.window_size);
+    command.connect.channel_count                = host_to_net_endian_32(cast(u32)channel_count);
+    command.connect.incoming_bandwidth           = host_to_net_endian_32(cast(u32)host.incoming_bandwidth);
+    command.connect.outgoing_bandwidth           = host_to_net_endian_32(cast(u32)host.outgoing_bandwidth);
+    command.connect.packet_throttle_interval     = host_to_net_endian_32(current_peer.packet_throttle_interval);
+    command.connect.packet_throttle_acceleration = host_to_net_endian_32(current_peer.packet_throttle_acceleration);
+    command.connect.packet_throttle_deceleration = host_to_net_endian_32(current_peer.packet_throttle_deceleration);
     command.connect.connect_id                   = current_peer.connect_id;
-    command.connect.data                         = host_to_net_endian(data);
+    command.connect.data                         = host_to_net_endian_32(data);
 
     peer_queue_outgoing_command(current_peer, *command, null, 0, 0);
 
@@ -260,14 +260,14 @@ host_send_raw :: (host: *Host, address: *Address, data: []u8) {
     buffer : [1]Buffer;
     buffer[0].data = data.data;
     buffer[0].length = data.count;
-    socket_send(host.socket, address, buffer);
+    socket_send(host.socket, address, buffer, 1);
 }
 
 host_send_raw :: (host: *Host, address: *Address, data: *$T) {
     buffer : [1]Buffer;
     buffer[0].data = data;
-    buffer[0].length = size_of(t);
-    socket_send(host.socket, address, buffer);
+    buffer[0].length = size_of(T);
+    socket_send(host.socket, address, buffer, 1);
 }
 
 host_flush :: (host: *Host) {
@@ -314,9 +314,8 @@ HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
 
 
 host_bandwidth_throttle :: (host: *Host) {
-    current_time := current_time_monotonic();
-    current_time_ms := to_microseconds(current_time);
-    elapsed_time := current_time_ms - host.bandwidth_throttle_epoch;
+    current_time := to_microseconds(current_time_monotonic() - host.service_time_offset);
+    elapsed_time := current_time - host.bandwidth_throttle_epoch;
     remaining_peers := host.connected_peers;
     data_total :u32 = U32_MAX;
     bandwidth  :u32 = U32_MAX;
@@ -328,7 +327,7 @@ host_bandwidth_throttle :: (host: *Host) {
     if elapsed_time < HOST_BANDWIDTH_THROTTLE_INTERVAL return;
     if host.outgoing_bandwidth == 0 && host.incoming_bandwidth == 0 return;
 
-    host.bandwidth_throttle_epoch = current_time_ms;
+    host.bandwidth_throttle_epoch = current_time;
 
     if remaining_peers == 0 return;
 
@@ -355,7 +354,7 @@ host_bandwidth_throttle :: (host: *Host) {
         peer_bandwidth : u32;
 
         for * peer: host.peers {
-            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.incoming_bandwidth == 0 || peer.outgoing_bandwidth_throttle_epoch == current_time_ms then continue;
+            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.incoming_bandwidth == 0 || peer.outgoing_bandwidth_throttle_epoch == current_time then continue;
 
             peer_bandwidth = (peer.incoming_bandwidth * cast(u32)elapsed_time) / 1000;
             if (throttle * peer.outgoing_data_total) / PEER_PACKET_THROTTLE_SCALE <= peer_bandwidth then continue;
@@ -365,7 +364,7 @@ host_bandwidth_throttle :: (host: *Host) {
             if peer.packet_throttle_limit == 0 then peer.packet_throttle_limit = 1;
             if peer.packet_throttle > peer.packet_throttle_limit then peer.packet_throttle = peer.packet_throttle_limit; 
 
-            peer.outgoing_bandwidth_throttle_epoch = current_time_ms;
+            peer.outgoing_bandwidth_throttle_epoch = current_time;
 
             peer.incoming_data_total = 0;
             peer.outgoing_data_total = 0;
@@ -385,7 +384,7 @@ host_bandwidth_throttle :: (host: *Host) {
         }
 
         for * peer: host.peers {
-            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.outgoing_bandwidth_throttle_epoch == current_time_ms then continue;
+            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.outgoing_bandwidth_throttle_epoch == current_time then continue;
 
             peer.packet_throttle_limit = throttle;
 
@@ -411,10 +410,10 @@ host_bandwidth_throttle :: (host: *Host) {
                 bandwidth_limit = bandwidth / remaining_peers;
 
                 for * peer: host.peers {
-                    if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.incoming_bandwidth_throttle_epoch == current_time_ms then continue;
+                    if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.incoming_bandwidth_throttle_epoch == current_time then continue;
                     if peer.outgoing_bandwidth > 0 && peer.outgoing_bandwidth >= bandwidth_limit then continue;
 
-                    peer.incoming_bandwidth_throttle_epoch = current_time_ms;
+                    peer.incoming_bandwidth_throttle_epoch = current_time;
 
                     needs_adjustment = true;
                     remaining_peers -= 1;
@@ -429,12 +428,12 @@ host_bandwidth_throttle :: (host: *Host) {
             command : Protocol;
             command.header.command = Protocol_Command.BANDWIDTH_LIMIT | .FLAG_ACKNOWLEDGE;
             command.header.channel_id = 0xFF;
-            command.bandwidth_limit.outgoing_bandwidth = host_to_net_endian(host.outgoing_bandwidth);
+            command.bandwidth_limit.outgoing_bandwidth = host_to_net_endian_32(host.outgoing_bandwidth);
 
-            if peer.incoming_bandwidth_throttle_epoch == current_time_ms {
-                command.bandwidth_limit.incoming_bandwidth = host_to_net_endian(peer.outgoing_bandwidth);
+            if peer.incoming_bandwidth_throttle_epoch == current_time {
+                command.bandwidth_limit.incoming_bandwidth = host_to_net_endian_32(peer.outgoing_bandwidth);
             } else {
-                command.bandwidth_limit.incoming_bandwidth = host_to_net_endian(bandwidth_limit);
+                command.bandwidth_limit.incoming_bandwidth = host_to_net_endian_32(bandwidth_limit);
             }
 
             peer_queue_outgoing_command(peer, *command, null, 0, 0);

@@ -222,13 +222,13 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 }
             }
 
-            if (list_empty(*peer.outgoing_reliable_commands) || 
-                protocol_send_reliable_outgoing_commands(host, peer)) &&
+            should_ping := protocol_send_reliable_outgoing_commands(host, peer);
+            if (list_empty(*peer.outgoing_reliable_commands) || should_ping) &&
                 list_empty(*peer.sent_reliable_commands) && 
                 host.service_time - peer.last_received_time >= peer.ping_interval &&
                 peer.mtu - host.packet_size >= size_of(Protocol_Ping) 
              {
-
+                // print("ping\n");
                 peer_ping(peer);
                 protocol_send_reliable_outgoing_commands(host, peer);
             }
@@ -411,6 +411,8 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
         buffer.length = size_of(Protocol_Acknowledge);
         host.packet_size += xx buffer.length;
 
+        // print("send ack\n");
+
         reliable_seq_number := host_to_net_endian_16(ack.command.header.reliable_seq_number);
 
         command.header.command = Protocol_Command.ACKNOWLEDGE;
@@ -454,6 +456,14 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
             host.service_time - peer.earliest_timeout >= peer.timeout_maximum ||
             (outgoing_cmd.round_trip_timeout >= outgoing_cmd.round_trip_timeout_limit &&
             host.service_time - peer.earliest_timeout >= peer.timeout_minimum)) {
+
+            /*
+            print("protocol_check_timeouts - service_time: %\n", host.service_time);
+            print("  peer.earliest_timeout %\n", peer.earliest_timeout);
+            print("  timeout maxmum: % (% - % >= %)\n", peer.timeout_maximum, host.service_time, peer.earliest_timeout, peer.timeout_maximum);
+            print("  round_trip_timeout >= round_trip_timeout_limit: % >= %\n", outgoing_cmd.round_trip_timeout, outgoing_cmd.round_trip_timeout_limit);
+            print("  service_time - earliest_timeout >= timeout_minimum: % - % >= %\n", host.service_time, peer.earliest_timeout, peer.timeout_minimum);
+            */
 
             protocol_notify_disconnect_timeout(host, peer, event);
             return true;
@@ -939,12 +949,17 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;
 
+    // print("recv ack\n");
+
     // :Time
     received_sent_time := cast(s64)net_to_host_endian_16(command.acknowledge.received_sent_time);
     received_sent_time |= host.service_time & 0xFFFF0000;
     if received_sent_time & 0x8000 > host.service_time & 0x8000 then received_sent_time -= 0x10000;
 
-    if host.service_time < received_sent_time then return .NONE;
+    if host.service_time < received_sent_time {
+        // print("We received an ack from the future!\n");
+        return .NONE;
+    }
 
     peer.last_received_time = host.service_time;
     peer.earliest_timeout = 0;
@@ -998,11 +1013,13 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
 }
 
 protocol_handle_ping :: (host: *Host, peer: *Peer, command: Protocol) -> Result_Status {
+    // print("pong\n");
+
     if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
         return .ERROR;
-    } else {
-        return .NONE;
     }
+
+    return .NONE;
 }
 
 protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Protocol) -> *Peer {

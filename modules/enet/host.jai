@@ -314,7 +314,7 @@ HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
 
 
 host_bandwidth_throttle :: (host: *Host) {
-    current_time := to_microseconds(current_time_monotonic() - host.service_time_offset);
+    current_time := to_milliseconds(current_time_monotonic() - host.service_time_offset);
     elapsed_time := current_time - host.bandwidth_throttle_epoch;
     remaining_peers := host.connected_peers;
     data_total :u32 = U32_MAX;
@@ -442,5 +442,5 @@ host_bandwidth_throttle :: (host: *Host) {
 }
 
 host_update_service_time :: (host: *Host) {
-    host.service_time = to_microseconds(current_time_monotonic() - host.service_time_offset);
+    host.service_time = to_milliseconds(current_time_monotonic() - host.service_time_offset);
 }

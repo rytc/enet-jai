@@ -23,7 +23,7 @@ Address :: struct {
 }
 
 Packet :: struct {
-    ref_count   :  u32;
+    ref_count   :  s32;
     flags       :  Packet_Flags;
     data        : *u8;
     data_length :  u32;

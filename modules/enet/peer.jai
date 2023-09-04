@@ -159,7 +159,7 @@ peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
             fragment_number += 1;
         }
 
-        packet.ref_count += fragment_number;
+        packet.ref_count += cast(s32)fragment_number;
 
         while !list_empty(*fragments) {
             fragment := cast(*Outgoing_Command)list_remove(list_begin(*fragments));

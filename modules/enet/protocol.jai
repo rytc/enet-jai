@@ -313,7 +313,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
 protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Status {
     for 0..255 {
         buffer : [1]Buffer;
-        buffer[0].data = *host.packet_data[0];
+        buffer[0].data = host.packet_data.data;
         buffer[0].length = xx host.mtu;
 
         received_length := socket_receive(host.socket, *host.received_address, buffer, 1);
@@ -676,7 +676,7 @@ protocol_remove_sent_unreliable_commands :: (peer: *Peer) {
         if outgoing_cmd.packet != null {
             outgoing_cmd.packet.ref_count -= 1;
 
-            if outgoing_cmd.packet.ref_count == 0 {
+            if outgoing_cmd.packet.ref_count <= 0 {
                 outgoing_cmd.packet.flags |= .SENT;
                 packet_destroy(outgoing_cmd.packet);
             }
@@ -795,7 +795,7 @@ protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16,
 
         outgoing_cmd.packet.ref_count -= 1;
 
-        if outgoing_cmd.packet.ref_count == 0 {
+        if outgoing_cmd.packet.ref_count <= 0 {
             outgoing_cmd.packet.flags |= Packet_Flags.SENT;
             packet_destroy(outgoing_cmd.packet);
         }

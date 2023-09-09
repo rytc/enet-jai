@@ -274,7 +274,7 @@ peer_reset :: (peer: *Peer) {
 
     peer.* = Peer.{};
     peer.host = host;
-    peer.incoming_peer_id = peer.incoming_peer_id;
+    peer.incoming_peer_id = incoming_peer_id;
     peer.outgoing_session_id = 0xFF;
     peer.incoming_session_id = 0xFF;
 

@@ -397,7 +397,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
     while current_ack != list_end(*peer.acknowledgements) {
         // @TODO :fix_loop_check
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer - host.buffers.data + 1 >= MAX_BUFFER_COUNT ||
+            buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
             peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) {
 
             host.continue_sending = true;
@@ -540,7 +540,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         cmd_size := protocol_command_size(outgoing_cmd.command.header.command);
 
         if cmd - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer - host.buffers.data + 1 >= cast(u32)(MAX_BUFFER_COUNT) ||
+            (buffer+1) - host.buffers.data >= cast(u32)(MAX_BUFFER_COUNT) ||
             peer.mtu - host.packet_size < cmd_size ||
             (outgoing_cmd.packet != null && cast(u16)(peer.mtu - host.packet_size) < cast(u16)(cmd_size + outgoing_cmd.fragment_length)) {
 
@@ -607,7 +607,7 @@ protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) {
         cmd_size := protocol_command_size(outgoing_cmd.command.header.command);
 
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer + 1 - host.buffers.data >= MAX_BUFFER_COUNT ||
+            buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
             peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) ||
             (outgoing_cmd.packet != null && peer.mtu - host.packet_size < cmd_size + outgoing_cmd.fragment_length) {
 
@@ -858,6 +858,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
         }
     }
 
+
     // @TODO :compression support
     // if flags & PROTOCOL_FLAG_COMPRESSED {
     //     log_error("enet: compression is not yet supported\n");
@@ -900,7 +901,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
         command.header.reliable_seq_number = net_to_host_endian_16(command.header.reliable_seq_number);
 
-        // print("Incoming command (from peer %)%\n", peer_id, cast(Protocol_Command)command_number);
 
         if command_number == {
             case .ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) != .NONE then break;
@@ -961,6 +961,7 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
         return .NONE;
     }
 
+    last_receive_time := peer.last_received_time;
     peer.last_received_time = host.service_time;
     peer.earliest_timeout = 0;
     round_trip_time := host.service_time - received_sent_time;
@@ -1027,12 +1028,12 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
 
     if channel_count < PROTOCOL_MIN_CHANNEL_COUNT || channel_count > PROTOCOL_MAX_CHANNEL_COUNT return null;
 
-    duplicate_peers : u32;
-    peer : *Peer;
+    duplicate_peers: u32;
+    peer: *Peer;
 
     for * current_peer: host.peers {
-        if current_peer.state == .DISCONNECTED {
-            if !peer peer = current_peer;
+        if current_peer.state == .DISCONNECTED && !peer {
+            peer = current_peer;
         } else if current_peer.state != .CONNECTING && in6_equal(current_peer.address.host, host.received_address.host) {
             if current_peer.address.port == host.received_address.port && current_peer.connect_id == command.connect.connect_id return null;
 
@@ -1055,6 +1056,7 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     peer.packet_throttle_acceleration = net_to_host_endian_32(command.connect.packet_throttle_acceleration);
     peer.packet_throttle_deceleration = net_to_host_endian_32(command.connect.packet_throttle_deceleration);
     peer.event_data = net_to_host_endian_32(command.connect.data);
+
 
     incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
     incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);

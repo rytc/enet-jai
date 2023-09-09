@@ -23,7 +23,7 @@ Host :: struct {
     command_count: u32;
 
     header_flags: u32;
-    buffers : [MAX_BUFFER_COUNT]Buffer;
+    buffers : [MAX_BUFFER_COUNT + 1]Buffer; // original C code relies on accessing past the last element
     buffer_count : u32;
 
     total_sent_packets : u32;
@@ -46,7 +46,7 @@ Host :: struct {
 host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming_bandwidth: int, outgoing_bandwidth: int) -> *Host, bool {
     host : *Host;
 
-    if peer_count < 0 || peer_count > PROTOCOL_MAX_PEER_ID {
+    if peer_count < 0 || peer_count >= PROTOCOL_MAX_PEER_ID {
         log_error("Invalid peer count 0 < % < %", peer_count, PROTOCOL_MAX_PEER_ID);
         return host, false; 
     }
@@ -99,7 +99,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
 
     list_clear(*host.dispatch_queue);
 
-    for * peer : host.peers {
+    for * peer: host.peers {
         peer.host = host;
         peer.incoming_peer_id = cast(u16)it_index;
         peer.outgoing_session_id = 0xFF;

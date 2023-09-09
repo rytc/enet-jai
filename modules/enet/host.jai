@@ -40,7 +40,7 @@ Host :: struct {
     maximum_waiting_data : u32;
 
     continue_sending : bool;
-    dispatch_queue : List;
+    dispatch_queue: List;
 }
 
 host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming_bandwidth: int, outgoing_bandwidth: int) -> *Host, bool {

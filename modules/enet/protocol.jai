@@ -228,7 +228,6 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 host.service_time - peer.last_received_time >= peer.ping_interval &&
                 peer.mtu - host.packet_size >= size_of(Protocol_Ping) 
              {
-                // print("ping\n");
                 peer_ping(peer);
                 protocol_send_reliable_outgoing_commands(host, peer);
             }
@@ -290,7 +289,6 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             peer.last_sent_time = host.service_time;
 
             sent_length := socket_send(host.socket, *peer.address, host.buffers, host.buffer_count);
-            // print("Sent packet of size %\n", sent_length);
             protocol_remove_sent_unreliable_commands(peer);
 
             if sent_length < 0 {
@@ -327,7 +325,6 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Sta
         host.total_received_data_length += xx received_length;
         host.total_received_packets += 1;
 
-        // print("received packet of size %\n", received_length);
 
         // @TODO
         // if host.intercept !== null { }
@@ -378,7 +375,7 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> Result_St
 
                 if !list_empty(*peer.dispatched_commands) {
                     peer.needs_dispatch = true;
-                    list_insert(list_end(*host.dispatch_queue), *peer.dispatch_list);
+                    list_insert(list_end(*host.dispatch_queue), peer);
                 }
 
                 return .SUCCESS;
@@ -410,8 +407,6 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
         buffer.data = cast(*u8)command;
         buffer.length = size_of(Protocol_Acknowledge);
         host.packet_size += xx buffer.length;
-
-        // print("send ack\n");
 
         reliable_seq_number := host_to_net_endian_16(ack.command.header.reliable_seq_number);
 
@@ -710,7 +705,7 @@ protocol_dispatch_state :: (host: *Host, peer: *Peer, state: Peer_State) {
     protocol_change_state(host, peer, state);
 
     if !peer.needs_dispatch {
-        list_insert(list_end(*host.dispatch_queue), *peer.dispatch_list);
+        list_insert(list_end(*host.dispatch_queue), peer);
         peer.needs_dispatch = true;
     }
 }
@@ -949,15 +944,12 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;
 
-    // print("recv ack\n");
-
     // :Time
     received_sent_time := cast(s64)net_to_host_endian_16(command.acknowledge.received_sent_time);
     received_sent_time |= host.service_time & 0xFFFF0000;
     if received_sent_time & 0x8000 > host.service_time & 0x8000 then received_sent_time -= 0x10000;
 
     if host.service_time < received_sent_time {
-        // print("We received an ack from the future!\n");
         return .NONE;
     }
 
@@ -970,10 +962,10 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
     peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
 
     if round_trip_time >= peer.round_trip_time {
-        peer.round_trip_time += (round_trip_time - peer.round_trip_time) / 8;
+        peer.round_trip_time          += (round_trip_time - peer.round_trip_time) / 8;
         peer.round_trip_time_variance += (round_trip_time - peer.round_trip_time) / 4;
     } else {
-        peer.round_trip_time -= (round_trip_time - peer.round_trip_time) / 8;
+        peer.round_trip_time          -= (round_trip_time - peer.round_trip_time) / 8;
         peer.round_trip_time_variance -= (round_trip_time - peer.round_trip_time) / 4;
     }
 
@@ -1014,8 +1006,6 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
 }
 
 protocol_handle_ping :: (host: *Host, peer: *Peer, command: Protocol) -> Result_Status {
-    // print("pong\n");
-
     if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
         return .ERROR;
     }
@@ -1056,7 +1046,6 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
     peer.packet_throttle_acceleration = net_to_host_endian_32(command.connect.packet_throttle_acceleration);
     peer.packet_throttle_deceleration = net_to_host_endian_32(command.connect.packet_throttle_deceleration);
     peer.event_data = net_to_host_endian_32(command.connect.data);
-
 
     incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
     incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);

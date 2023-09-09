@@ -164,7 +164,7 @@ channel_reset :: (channel: *Channel) {
     channel.used_reliable_windows = 0;
     list_clear(*channel.incoming_reliable_commands);
     list_clear(*channel.incoming_unreliable_commands);
-    memset(channel.reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(type_of(PEER_RELIABLE_WINDOWS)));
+    memset(channel.reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(u16));
 }
 
 // Should match WSABUF

@@ -12,14 +12,14 @@ Peer_State :: enum {
 }
 
 Peer :: struct {
-    dispatch_list : List_Node;
+    #as using dispatch_list: List_Node;
     state : Peer_State;
     channels : [] Channel;
     address : Address;
     connect_id : u32;
     data : *void;
     mtu : u32;
-    host : Host;
+    host: *Host;
 
     window_size : u32;
 
@@ -212,7 +212,7 @@ peer_disconnect :: (peer: *Peer, data: u32) {
         peer_on_disconnect(peer);
         peer.state = .DISCONNECTING;
     } else {
-        host_flush(*peer.host);
+        host_flush(peer.host);
         peer_reset(peer);
     }
 }
@@ -262,8 +262,8 @@ peer_ping_interval :: (peer: *Peer, interval: u32) {
 
 peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max: u32) {
     peer.timeout_limit = ifx timeout_limit then timeout_limit else PEER_TIMEOUT_LIMIT;
-    peer.timeout_minimum = ifx timeout_min then timeout_min else PEER_TIMEOUT_MIN;
-    peer.timeout_maximum = ifx timeout_max then timeout_max else PEER_TIMEOUT_MAX;
+    peer.timeout_minimum = ifx timeout_min then timeout_min else PEER_TIMEOUT_MINIMUM;
+    peer.timeout_maximum = ifx timeout_max then timeout_max else PEER_TIMEOUT_MAXIMUM;
 }
 
 peer_reset :: (peer: *Peer) {
@@ -307,7 +307,7 @@ peer_reset :: (peer: *Peer) {
 peer_reset_queues :: (peer: *Peer) {
     
     if peer.needs_dispatch {
-        list_remove(*peer.dispatch_list);
+        list_remove(peer);
         peer.needs_dispatch = false;
     }
 
@@ -439,8 +439,6 @@ peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
 peer_queue_outgoing_command :: (peer: *Peer, command: *Protocol, packet: *Packet, offset: u32, length: u16) -> *Outgoing_Command {
     outgoing_cmd := New(Outgoing_Command);
 
-    // print("Sending % to peer in:% out:%\n", cast(Protocol_Command)(command.header.command & PROTOCOL_COMMAND_MASK), peer.outgoing_peer_id, peer.incoming_peer_id ); 
-
     outgoing_cmd.command = command.*;
     outgoing_cmd.fragment_offset = offset;
     outgoing_cmd.fragment_length = length;
@@ -567,7 +565,9 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
             reliable_window += PEER_RELIABLE_WINDOWS;
         }
 
-        if reliable_window < current_window || reliable_window >= current_window + PEER_RELIABLE_WINDOWS - 1 then do_error(true);
+        if reliable_window < current_window || reliable_window >= current_window + PEER_RELIABLE_WINDOWS - 1 {
+            do_error(true);
+        }
     }
 
     if command.header.command & .MASK == {
@@ -690,7 +690,7 @@ peer_dispatch_incoming_reliable_commands :: (peer: *Peer, channel: *Channel) {
     list_move(list_end(*peer.dispatched_commands), list_begin(*channel.incoming_reliable_commands), list_previous(current_cmd));
 
     if !peer.needs_dispatch {
-        list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+        list_insert(list_end(*peer.host.dispatch_queue), peer);
         peer.needs_dispatch = true;
     }
 
@@ -725,7 +725,7 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
                 list_move(list_end(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
 
                 if !peer.needs_dispatch {
-                    list_insert(list_end(*peer.dispatched_commands), *peer.dispatch_list);
+                    list_insert(list_end(*peer.dispatched_commands), peer);
                     peer.needs_dispatch = true;
                 }
 
@@ -751,7 +751,7 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
                 list_move(list_next(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
 
                 if !peer.needs_dispatch {
-                    list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+                    list_insert(list_end(*peer.host.dispatch_queue), peer);
                     peer.needs_dispatch = true;
                 }
             }
@@ -765,7 +765,7 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
         list_move(list_end(*peer.dispatched_commands), start_cmd, list_previous(current_cmd));
 
         if !peer.needs_dispatch {
-            list_insert(list_end(*peer.host.dispatch_queue), *peer.dispatch_list);
+            list_insert(list_end(*peer.host.dispatch_queue), peer);
             peer.needs_dispatch = true;
         }
 

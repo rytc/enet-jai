@@ -956,7 +956,7 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
     last_receive_time := peer.last_received_time;
     peer.last_received_time = host.service_time;
     peer.earliest_timeout = 0;
-    round_trip_time := host.service_time - received_sent_time;
+    round_trip_time := cast(u32)(host.service_time - received_sent_time);
 
     peer_throttle(peer, round_trip_time);
     peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;

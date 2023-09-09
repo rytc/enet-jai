@@ -80,14 +80,14 @@ Peer :: struct {
     timeout_minimum : s64; // :Time
     timeout_maximum : s64; // :Time
     timeout_limit : s64; // :Time
-    round_trip_time : s64; // :Time
-    round_trip_timeout : s64; // :Time
-    round_trip_time_variance : s64; // :Time
-    lowest_round_trip_time_variance : s64; // :Time
-    highest_round_trip_time_variance : s64; // :Time
-    last_round_trip_time_variance : s64; // :Time
-    last_round_trip_time : s64; // :Time
-    lowest_round_trip_time : s64; // :Time
+    round_trip_time : u32; // :Time
+    round_trip_timeout : u32; // :Time
+    round_trip_time_variance : u32; // :Time
+    lowest_round_trip_time_variance : u32; // :Time
+    highest_round_trip_time_variance : u32; // :Time
+    last_round_trip_time_variance : u32; // :Time
+    last_round_trip_time : u32; // :Time
+    lowest_round_trip_time : u32; // :Time
 
     needs_dispatch : bool;
     event_data : u32;
@@ -411,7 +411,7 @@ peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
     return packet;
 }
 
-peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
+peer_throttle :: (peer: *Peer, round_trip_time: u32) -> Result_Status {
     if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
         peer.packet_throttle = peer.packet_throttle_limit;
     } else if round_trip_time < peer.last_round_trip_time {

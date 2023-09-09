@@ -414,7 +414,7 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
         command.header.channel_id = ack.command.header.channel_id;
         command.header.reliable_seq_number = reliable_seq_number;
         command.acknowledge.received_reliable_seq_number = reliable_seq_number;
-        command.acknowledge.received_sent_time = host_to_net_endian_16(cast(u16)ack.sent_time);
+        command.acknowledge.received_sent_time = host_to_net_endian_16(ack.sent_time);
 
         if ack.command.header.command & .MASK == .DISCONNECT then protocol_dispatch_state(host, peer, .ZOMBIE);
 
@@ -947,7 +947,7 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
     // :Time
     received_sent_time := cast(s64)net_to_host_endian_16(command.acknowledge.received_sent_time);
     received_sent_time |= host.service_time & 0xFFFF0000;
-    if received_sent_time & 0x8000 > host.service_time & 0x8000 then received_sent_time -= 0x10000;
+    if received_sent_time & 0x8000 > host.service_time & 0x8000 then received_sent_time -= 0x1000;
 
     if host.service_time < received_sent_time {
         return .NONE;
@@ -965,8 +965,8 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
         peer.round_trip_time          += (round_trip_time - peer.round_trip_time) / 8;
         peer.round_trip_time_variance += (round_trip_time - peer.round_trip_time) / 4;
     } else {
-        peer.round_trip_time          -= (round_trip_time - peer.round_trip_time) / 8;
-        peer.round_trip_time_variance -= (round_trip_time - peer.round_trip_time) / 4;
+        peer.round_trip_time          -= (peer.round_trip_time - round_trip_time) / 8;
+        peer.round_trip_time_variance += (peer.round_trip_time - round_trip_time) / 4;
     }
 
     if peer.round_trip_time < peer.lowest_round_trip_time then peer.lowest_round_trip_time = peer.round_trip_time;

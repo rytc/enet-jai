@@ -175,7 +175,7 @@ Buffer :: struct {
 
 Acknowledgement :: struct {
     #as using list : List_Node;
-    sent_time      : u32; // :Time
+    sent_time      : u16; // :Time
     command        : Protocol;
 }
 

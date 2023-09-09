@@ -293,6 +293,7 @@ peer_reset :: (peer: *Peer) {
     peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
     peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
     peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
+    peer.window_size            = PROTOCOL_MAX_WINDOW_SIZE;
 
     list_clear(*peer.outgoing_reliable_commands);
     list_clear(*peer.outgoing_unreliable_commands);

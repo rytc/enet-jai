@@ -655,9 +655,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
 
     list_insert(list_next(current_cmd), incoming_cmd);
 
-    if command.header.command == {
-        case .SEND_RELIABLE_ACKNOWLEDGE; #through;
-        case .SEND_RELIABLE_UNSEQUENCED; #through;
+    if command.header.command & .MASK == {
         case .SEND_FRAGMENT; #through;
         case .SEND_RELIABLE; 
             peer_dispatch_incoming_reliable_commands(peer, channel);
@@ -706,11 +704,10 @@ peer_dispatch_incoming_unreliable_commands :: (peer: *Peer, channel: *Channel) {
     start_cmd := dropped_cmd;
     current_cmd := dropped_cmd;
 
-    // This can't be a for loop because we're modifying the iterator in the middle of the loop
     while current_cmd != list_end(*channel.incoming_unreliable_commands) {
         incoming_cmd := cast(*Incoming_Command)current_cmd;
 
-        if incoming_cmd.command.header.command == .SEND_UNSEQUENCED then {
+        if incoming_cmd.command.header.command & .MASK == .SEND_UNSEQUENCED then {
             current_cmd = list_next(current_cmd);
             continue;
         }

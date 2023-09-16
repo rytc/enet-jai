@@ -72,14 +72,14 @@ deinitialize :: () {
 
 
 packet_create :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return packet_create(cast(*void)data, size_of(T), flags);
+    return packet_create(cast(*u8)data, size_of(T), flags);
 }
 
 packet_create :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
-    return packet_create(cast(*void)data.data, data.count, flags);
+    return packet_create(cast(*u8)data.data, data.count, flags);
 }
 
-packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
+packet_create :: (data : *u8, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
     packet : *Packet;
 
     assert(data_length >= 0 && data_length <= U32_MAX);
@@ -90,7 +90,10 @@ packet_create :: (data : *void, data_length : int, flags : Packet_Flags = .RELIA
     } else {
         packet = alloc(size_of(Packet) + data_length);
         packet.data = cast(*u8)(packet) + size_of(Packet);
-        memcpy(packet.data, data, cast(u32)data_length);
+
+        if data {
+            memcpy(packet.data, data, cast(u32)data_length);
+        }
     }
 
     packet.flags = flags;

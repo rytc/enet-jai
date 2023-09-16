@@ -1339,7 +1339,7 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
         if start_cmd == null then return .ERROR;
     }
 
-    if start_cmd.fragments[fragment_number / 32] & 1 << (fragment_number %32) == 0 {
+    if start_cmd.fragments[fragment_number / 32] & (1 << (fragment_number % 32)) == 0 {
         start_cmd.fragments_remaining -= 1;
         start_cmd.fragments[fragment_number / 32] |= cast(u32)(1 << (fragment_number % 32));
 

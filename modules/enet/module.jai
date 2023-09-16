@@ -311,4 +311,9 @@ in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
     Windows :: #import "Windows"; // timeGetTime
 }
 
+#scope_module
+
+time_difference :: (a: s64, b: s64) -> s64 {
+    return max(a,b) - min(a,b);
+}
 

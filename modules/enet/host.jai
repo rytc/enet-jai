@@ -200,7 +200,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
     timeout += host.service_time;
 
     while true {
-        if host.service_time - host.bandwidth_throttle_epoch > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
+        if time_difference(host.service_time, host.bandwidth_throttle_epoch) > HOST_BANDWIDTH_THROTTLE_INTERVAL then host_bandwidth_throttle(host);
 
         send_outgoing :: () #expand {
             send_out_status := protocol_send_outgoing_commands(`host, `event, true);
@@ -225,12 +225,14 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
 
         send_outgoing();
 
-        dispatch_incoming_status := protocol_dispatch_incoming_commands(host, event);
-        if dispatch_incoming_status == {
-            case .SUCCESS; return .SUCCESS;
-            case .ERROR;
-                // log_error("[enet] Error dispatching incoming commands\n");
-                return .ERROR;
+        if event {
+            dispatch_incoming_status := protocol_dispatch_incoming_commands(host, event);
+            if dispatch_incoming_status == {
+                case .SUCCESS; return .SUCCESS;
+                case .ERROR;
+                    // log_error("[enet] Error dispatching incoming commands\n");
+                    return .ERROR;
+            }
         }
 
         if host.service_time >= timeout then return .NONE; 
@@ -241,7 +243,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
             if host.service_time > timeout then return .NONE;
 
             wait_condition = Socket_Wait.RECEIVE & .INTERRUPT;
-            if socket_wait(host.socket, *wait_condition, host.service_time - timeout) == .ERROR {
+            if socket_wait(host.socket, *wait_condition, time_difference(host.service_time, timeout)) == .ERROR {
                 return .ERROR;
             }
 

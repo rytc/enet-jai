@@ -505,7 +505,7 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
         reliable_window := command.header.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
         current_window := channel.incoming_reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
 
-        if command.header.reliable_seq_number < channel.incoming_reliable_seq_number then reliable_window + PEER_RELIABLE_WINDOWS;
+        if command.header.reliable_seq_number < channel.incoming_reliable_seq_number then reliable_window += PEER_RELIABLE_WINDOWS;
 
         if reliable_window >= current_window + PEER_FREE_RELIABLE_WINDOWS - 1 && reliable_window <= current_window + PEER_FREE_RELIABLE_WINDOWS {
             return null;
@@ -521,8 +521,6 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
     list_insert(list_end(*peer.acknowledgements), acknowledgement);
     return acknowledgement;
 }
-
-
 
 peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, data_length: u32, flags: Packet_Flags, fragment_count: u32) -> *Incoming_Command {
     packet : *Packet;

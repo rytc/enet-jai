@@ -1229,7 +1229,7 @@ protocol_handle_send_fragment :: (host: *Host, peer: *Peer, command: *Protocol, 
 
     start_cmd : *Incoming_Command;
 
-    // This is supposed to be :reverse but it's not working with that flag.
+    // This is supposed to be :reverse but it's not working with that flag. (not searching the list with 1 entry)
     // this shouldn't make a difference or might be slower? 
     for channel.incoming_reliable_commands {
         incoming_cmd := cast(*Incoming_Command)it;
@@ -1311,7 +1311,9 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
 
     start_cmd : *Incoming_Command;
 
-    for :reverse channel.incoming_unreliable_commands {
+    // This should be :reverse but it doesn't seem to be working correctly (not searching the list)
+    // temporary change until we figure it out. It shouldn't matter or might be slightly slower?
+    for channel.incoming_unreliable_commands {
         incoming_cmd := cast(*Incoming_Command)it;
 
         if reliable_seq_number >= channel.incoming_reliable_seq_number {

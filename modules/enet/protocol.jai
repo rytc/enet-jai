@@ -13,7 +13,7 @@ PROTOCOL_MAX_FRAGMENT_COUNT  :: 1024 * 1024;
 PROTOCOL_FLAG_COMPRESSED  :u32: 1 << 14;
 PROTOCOL_FLAG_SENT_TIME   :u32: 1 << 15;
 PROTOCOL_FLAG_MASK        :u32: PROTOCOL_FLAG_COMPRESSED | PROTOCOL_FLAG_SENT_TIME;
-PROTOCOL_COMMAND_COUNT                    :: 13;
+PROTOCOL_COMMAND_COUNT       :: 13;
 
 Protocol_Command :: enum u8 {
     NONE                     :: 0;
@@ -194,10 +194,7 @@ protocol_command_size :: (command : Protocol_Command) -> u32 {
 protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeouts: bool) -> Result_Status {
     header_data : [size_of(Protocol_Header) + size_of(u32)]u8;
     header : *Protocol_Header = cast(*Protocol_Header)header_data.data;
-    host.continue_sending = true;
 
-    while host.continue_sending {
-        host.continue_sending = false;
         for * peer: host.peers {
             if peer.state == .DISCONNECTED || peer.state == .ZOMBIE then continue;
 
@@ -299,7 +296,6 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
             host.total_sent_data += xx sent_length;
             peer.total_data_sent += xx sent_length;
             host.total_sent_packets += 1;
-        }
     }
 
     host.buffers[0].data = null;
@@ -429,7 +425,6 @@ protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
 
 // Returns true if the peer timed out
 protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
-
     insert_pos := list_begin(*peer.outgoing_reliable_commands);
     current_cmd := list_begin(*peer.sent_reliable_commands);
 
@@ -457,7 +452,6 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
             print("  round_trip_timeout >= round_trip_timeout_limit: % >= %\n", outgoing_cmd.round_trip_timeout, outgoing_cmd.round_trip_timeout_limit);
             print("  service_time - earliest_timeout >= timeout_minimum: % - % >= %\n", host.service_time, peer.earliest_timeout, peer.timeout_minimum);
             */
-
             protocol_notify_disconnect_timeout(host, peer, event);
             return true;
         }
@@ -1338,7 +1332,7 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
     }
 
     if start_cmd == null {
-        start_cmd = peer_queue_incoming_command(peer, command, null, total_length, .UNRELIABLE_FRAGMENT, fragment_count);
+        start_cmd = peer_queue_incoming_command(peer, command, null, total_length, .UNRELIABLE_FRAGMENT, xx fragment_count);
 
         if start_cmd == null then return .ERROR;
     }

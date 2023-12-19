@@ -497,8 +497,6 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     }
 }
 
-
-
 peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) -> *Acknowledgement {
     if command.header.channel_id < peer.channels.count {
         channel := *peer.channels[command.header.channel_id];

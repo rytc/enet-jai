@@ -193,6 +193,9 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         event.peer = null;
         event.packet = null;
 
+        // This returns events to the caller. Returns 1 event for 1 peer,
+        // subsequent calls will either return the next event or the next event
+        // for the peer. If none of the peers have events, then continue.
         if protocol_dispatch_incoming_commands(host, event) == .SUCCESS return .SUCCESS;
     }
 

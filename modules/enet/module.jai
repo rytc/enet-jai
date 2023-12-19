@@ -70,7 +70,6 @@ deinitialize :: () {
     // No deinitialization needed for unix
 }
 
-
 packet_create :: (data: *$T, flags: Packet_Flags = .RELIABLE) -> *Packet #expand {
     return packet_create(cast(*u8)data, size_of(T), flags);
 }
@@ -306,6 +305,9 @@ in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
     return memcmp(*a, *b, size_of(in6_addr)) == 0;
 }
 
+time_difference :: (a: s64, b: s64) -> s64 {
+    return max(a,b) - min(a,b);
+}
 
 #scope_file
 #import "Math"; // U32_MAX
@@ -313,10 +315,3 @@ in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
 #if OS == .WINDOWS {
     Windows :: #import "Windows"; // timeGetTime
 }
-
-#scope_module
-
-time_difference :: (a: s64, b: s64) -> s64 {
-    return max(a,b) - min(a,b);
-}
-

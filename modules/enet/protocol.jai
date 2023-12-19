@@ -1332,7 +1332,7 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
     }
 
     if start_cmd == null {
-        start_cmd = peer_queue_incoming_command(peer, command, null, total_length, .UNRELIABLE_FRAGMENT, xx fragment_count);
+        start_cmd = peer_queue_incoming_command(peer, command, null, total_length, .UNRELIABLE_FRAGMENT, fragment_count);
 
         if start_cmd == null then return .ERROR;
     }

@@ -1,3 +1,5 @@
+#module_parameters(DEBUG_FRAME_CAPTURE:=false, DEBUG_PRINT:=false);
+
 HOST_ANY :: V6_ANY_ADDR;
 
 Event_Type :: enum {
@@ -118,6 +120,10 @@ get_host_name_address :: (host: string) -> Address, bool {
 
 #load "host.jai";
 #load "peer.jai";
+
+#if DEBUG_FRAME_CAPTURE {
+    #load "debug_frame_capture.jai";
+}
 
 #scope_module
 #import "Basic";

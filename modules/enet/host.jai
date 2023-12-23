@@ -44,7 +44,7 @@ Host :: struct {
 }
 
 host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming_bandwidth: int, outgoing_bandwidth: int) -> *Host, bool {
-    host : *Host;
+    host: *Host;
 
     if peer_count < 0 || peer_count >= PROTOCOL_MAX_PEER_ID {
         log_error("Invalid peer count 0 < % < %", peer_count, PROTOCOL_MAX_PEER_ID);
@@ -61,7 +61,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
         log_error("Failed to create and bind socket: %\n", WSAGetLastError());
 
         socket_destroy(host.socket);
-        free(host.peers.data);
+        array_free(host.peers);
         free(host);
 
         return host, false;
@@ -121,7 +121,10 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
 
 host_destroy :: (host: *Host) {
     socket_destroy(host.socket);
-    free(host.peers.data);
+    for peer: host.peers  {
+        array_free(peer.channels);
+    }
+    array_free(host.peers);
     free(host);
 }
 
@@ -186,7 +189,10 @@ host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -
 // timeout: milliseconds to wait for incoming packets. Zero means it won't wait and will return immediately
 // Returns SUCCESS if it handled an incoming command. There may be more commands to handle on SUCCESS
 host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
-    wait_condition : Socket_Wait;
+    #if DEBUG_FRAME_CAPTURE {
+        debug_begin_frame();
+        defer debug_end_frame();
+    }
 
     if event {
         event.type = .NONE;
@@ -211,7 +217,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS;
                     `return .SUCCESS;
                 case .ERROR;
-                    // log_error("[enet] Error sending outgoing packets\n");
+                    log_error("[enet] Error sending outgoing packets\n");
                     `return .ERROR;
             }
         }
@@ -220,9 +226,12 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
 
         receive_in_status := protocol_receive_incoming_commands(host, event);
         if receive_in_status == {
-            case .SUCCESS; return .SUCCESS;
+            case .SUCCESS; 
+                return .SUCCESS;
             case .ERROR;
-                // log_error("[enet] Error receiving incoming packets\n");
+                #if DEBUG_PRINT {
+                    log_error("[enet] Error receiving incoming packets\n");
+                }
                 return .ERROR;
         }
 
@@ -231,14 +240,21 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
         if event {
             dispatch_incoming_status := protocol_dispatch_incoming_commands(host, event);
             if dispatch_incoming_status == {
-                case .SUCCESS; return .SUCCESS;
+                case .SUCCESS; 
+                    return .SUCCESS;
                 case .ERROR;
-                    // log_error("[enet] Error dispatching incoming commands\n");
+                    #if DEBUG_PRINT {
+                        log_error("[enet] Error dispatching incoming commands\n");
+                    }
                     return .ERROR;
             }
         }
 
-        if host.service_time >= timeout then return .NONE; 
+        if host.service_time >= timeout then {
+            return .NONE;
+        }
+
+        wait_condition: Socket_Wait;
 
         // Wait `timeout` amount of time for incoming packets
         while timeout > 0 {
@@ -317,7 +333,6 @@ HOST_DEFAULT_MAX_PACKET_SIZE      :: 32 * 1024 * 1024;
 HOST_DEFAULT_MAX_WAITING_DATA     :: 32 * 1024 * 1024;
 HOST_BANDWIDTH_THROTTLE_INTERVAL  :: 1000;
 
-
 host_bandwidth_throttle :: (host: *Host) {
     current_time := to_milliseconds(current_time_monotonic() - host.service_time_offset);
     elapsed_time := current_time - host.bandwidth_throttle_epoch;
@@ -359,7 +374,7 @@ host_bandwidth_throttle :: (host: *Host) {
         peer_bandwidth : u32;
 
         for * peer: host.peers {
-            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.incoming_bandwidth == 0 || peer.outgoing_bandwidth_throttle_epoch == current_time then continue;
+            if (peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER) || peer.outgoing_bandwidth_throttle_epoch == current_time then continue;
 
             peer_bandwidth = (peer.incoming_bandwidth * cast(u32)elapsed_time) / 1000;
             if (throttle * peer.outgoing_data_total) / PEER_PACKET_THROTTLE_SCALE <= peer_bandwidth then continue;

@@ -38,7 +38,7 @@ main :: () {
     counter := 0;
 
     while running {
-        event : enet.Event;
+        event: enet.Event;
 
         while enet.host_service(client, *event, 0) == .SUCCESS {
             if event.type == {

@@ -29,7 +29,7 @@ socket_destroy :: (socket: Socket) {
 }
 
 set_socket_options :: (socket: Socket, options: Socket_Options, value: s32) -> bool {
-    result : int;
+    result: int;
 
     if options == {
         case .NONEBLOCK;
@@ -37,7 +37,7 @@ set_socket_options :: (socket: Socket, options: Socket_Options, value: s32) -> b
                 result = ioctlsocket(socket, FIONBIO, cast(*u32)*value);
             } else {
                 other := fcntl(socket, F_GETFL) & ~O_NONBLOCK;
-                result = fcntl(socket, F_SETFL, ifx value then O_NONBLOCK else 0 | other);
+                result = fcntl(socket, F_SETFL, (ifx value then O_NONBLOCK else 0) | other);
             }
         case .BROADCAST;
             result = setsockopt(socket, SOL_SOCKET, SO_BROADCAST, cast(*u8)*value, size_of(s32));
@@ -55,7 +55,7 @@ set_socket_options :: (socket: Socket, options: Socket_Options, value: s32) -> b
 }
 
 socket_bind :: (socket: Socket, address: *Address) -> int {
-    sin : sockaddr_in6;
+    sin: sockaddr_in6;
     sin.sin6_family = AF_INET6;
 
     if address {
@@ -72,7 +72,7 @@ socket_bind :: (socket: Socket, address: *Address) -> int {
 }
 
 get_socket_address :: (socket: Socket, address: *Address) -> bool {
-    sin : sockaddr_in6;
+    sin:     sockaddr_in6;
     sin_len :s32= xx size_of(sockaddr_in6);
 
     if getsockname(socket, cast(*sockaddr)*sin, *sin_len) == -1 return false;
@@ -86,10 +86,10 @@ get_socket_address :: (socket: Socket, address: *Address) -> bool {
 
 socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result_Status {
     #if OS == .WINDOWS {
-        read_set : fd_set;
-        write_set : fd_set;
-        time : timeval;
-        select_count : int;
+        read_set:     fd_set;
+        write_set:    fd_set;
+        time:         timeval;
+        select_count: int;
 
         time.tv_sec  = cast(s32)(timeout / 1000);
         time.tv_usec = cast(s32)(timeout % 1000) * 1000;
@@ -109,8 +109,8 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
         if FD_ISSET(socket, *read_set) then condition.* |= .RECEIVE;
 
     } else #if OS == .UNIX {
-        poll_socket : pollfd;
-        poll_count : int;
+        poll_socket: pollfd;
+        poll_count:  int;
 
         poll_socket.fd     = socket;
         poll_socket.events = 0;
@@ -140,9 +140,9 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
     return .NONE;
 }
 
-socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> s32 {
-    sin : sockaddr_in6;
-    sent_length : u32;
+socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> (s32, socket_error: int = 0) {
+    sin:         sockaddr_in6;
+    sent_length: u32;
 
     #if OS == .WINDOWS {
         if address != null {
@@ -152,15 +152,20 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
             sin.sin6_scope_id = address.sin6_scope_id;
         }
 
+        buffer_size := 0;
+        for 0..buffer_count-1 {
+            buffer_size += buffers[it].length;
+        }
         if WSASendTo(socket, cast(*WSABUF)buffers.data, xx buffer_count, *sent_length, 0, 
             ifx address then cast(*sockaddr)*sin else null,
             ifx address then cast(s32)size_of(sockaddr_in6) else cast(s32)0,
             null, null) == SOCKET_ERROR {
 
-            return ifx WSAGetLastError() == WSAEWOULDBLOCK then cast(s32)0 else cast(s32)-1;
+            error_no := WSAGetLastError();
+            return ifx error_no == WSAEWOULDBLOCK then cast(s32)0 else cast(s32)-1, error_no;
         }
     } else #if OS == .UNIX {
-        msg_header : msghdr;
+        msg_header: msghdr;
 
         if address != null {
             sin.sin6_family = AF_INET6;
@@ -178,41 +183,50 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
         sent_length = send(socket, *msg_header, MSG_NOSIGNAL);
 
         if sent_length == -1 {
-            if errno() == EWOULDBLOCK return cast(s32)0;
+            error_no := errno();
+            if error_no == EWOULDBLOCK return cast(s32)0, error_no;
 
-            return cast(s32)-1;
+            return cast(s32)-1, error_no;
         }
     }
 
     return cast(s32)sent_length;
 }
 
-socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> s32 {
-    sin : sockaddr_in6;
-    receive_length : s32;
+socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_count: u32) -> (s32, socket_error: int = 0) {
+    sin:            sockaddr_in6;
+    receive_length: s32;
 
     #if OS == .WINDOWS {
-        flags : u32;
-        sin_length : s32 = size_of(sockaddr_in6);
+        flags:      u32;
+        sin_length: s32 = size_of(sockaddr_in6);
 
         result := WSARecvFrom(socket, cast(*WSABUF)buffers.data, buffer_count, cast(*u32)*receive_length, *flags,
-        ifx address then cast(*sockaddr)*sin else null,
-        ifx address then *sin_length else null,
-        null, null);
+            ifx address then cast(*sockaddr)*sin else null,
+            ifx address then *sin_length else null,
+            null, null);
 
         if result == SOCKET_ERROR {
-
-            if WSAGetLastError() == {
-                case WSAEWOULDBLOCK; #through;
-                case WSAECONNRESET; return 0;
+            error_no := WSAGetLastError();
+            if error_no == {
+                case WSAEWOULDBLOCK; 
+                    return 0, error_no;
+                case WSAECONNRESET; 
+                    #if DEBUG_PRINT {
+                        log("CONN RESET from %\n", sin.sin6_port);
+                    }
+                    return 0, error_no;
+                case WSAEMSGSIZE;
+                    return -2;
             }
 
-            log_error("error on recvfrom %\n", WSAGetLastError());
-
-            return -1;
+            #if DEBUG_PRINT {
+                log("Socket error from recvfrom %\n", error_no);
+            }
+            return -1, error_no;
         }
 
-        if flags & cast(u32)MSG.PARTIAL return -1;
+        if flags & cast(u32)MSG.PARTIAL return -2;
 
         if address {
             address.host           = sin.sin6_addr;
@@ -221,7 +235,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
         }
 
     } else #if OS == .UNIX {
-        msg_header : msghdr;
+        msg_header: msghdr;
         msg_header.msg_name = *sin;
         msg_header.msg_namelen = size_of(sockaddr_in6);
 
@@ -231,9 +245,10 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
         receive_length = recvmsg(socket, *msg_header, MSG_NOSIGNAL);
 
         if receive_length == -1 {
-            if errno() == EWOULDBLOCK return cast(u32)0;
+            error_no = errno();
+            if err_no == EWOULDBLOCK return cast(u32)0, error_no;
 
-            return -1;
+            return -1, error_no;
         }
 
         if msg_header.msg_flags & MSG_TRUNC return -1;

@@ -2,7 +2,6 @@
 enet :: #import "enet";
 
 main :: () {
-
     if !enet.initialize() {
         print("Failed to initialize enet\n");
         return;
@@ -10,7 +9,7 @@ main :: () {
     defer enet.deinitialize();
 
     // Server is created by assigning an address and port to bind to
-    address : enet.Address;
+    address: enet.Address;
     address.host = enet.HOST_ANY;
     address.port = 1234;
 
@@ -25,7 +24,7 @@ main :: () {
 
     print("Server started...\n");
     while true {
-        event : enet.Event;
+        event: enet.Event;
 
         while enet.host_service(host, *event, 0) == .SUCCESS {
             if event.type == {

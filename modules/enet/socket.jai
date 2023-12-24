@@ -94,7 +94,6 @@ socket_wait :: (socket: Socket, condition: *Socket_Wait, timeout: s64) -> Result
         time.tv_sec  = cast(s32)(timeout / 1000);
         time.tv_usec = cast(s32)(timeout % 1000) * 1000;
 
-
         if condition.* & .SEND then FD_SET(socket, *write_set);
         if condition.* & .RECEIVE then FD_SET(socket, *read_set);
 
@@ -178,7 +177,7 @@ socket_send :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_cou
         }
 
         msg_header.msg_iov = cast(*iovec)buffers.data;
-        msg_header.msg_iovlen = buffers.count;
+        msg_header.msg_iovlen = buffers.count - 1;
 
         sent_length = send(socket, *msg_header, MSG_NOSIGNAL);
 
@@ -212,9 +211,6 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
                 case WSAEWOULDBLOCK; 
                     return 0, error_no;
                 case WSAECONNRESET; 
-                    #if DEBUG_PRINT {
-                        log("CONN RESET from %\n", sin.sin6_port);
-                    }
                     return 0, error_no;
                 case WSAEMSGSIZE;
                     return -2;

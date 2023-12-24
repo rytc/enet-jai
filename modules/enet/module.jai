@@ -291,27 +291,27 @@ map_ip4_to_ip6 :: (addr: in6_addr) -> in_addr {
     return result;
 }
 
-host_to_net_endian_16 :: (value: u16 ) -> u16 #expand {
+host_to_net_endian_16 :: inline (value: u16 ) -> u16 {
     return htons(value);
 }
 
-host_to_net_endian_32 :: (value: u32) -> u32 #expand {
+host_to_net_endian_32 :: inline (value: u32) -> u32 {
     return htonl(value);
 }
 
-net_to_host_endian_16 :: (value: u16) -> u16 #expand {
+net_to_host_endian_16 :: inline (value: u16) -> u16 {
     return ntohs(value);
 }
 
-net_to_host_endian_32 :: (value: u32) -> u32 #expand {
+net_to_host_endian_32 :: inline (value: u32) -> u32 {
     return ntohl(value);
 }
 
-in6_equal ::(a: in6_addr, b: in6_addr) -> bool #expand {
+in6_equal :: inline (a: in6_addr, b: in6_addr) -> bool {
     return memcmp(*a, *b, size_of(in6_addr)) == 0;
 }
 
-time_difference :: (a: s64, b: s64) -> s64 {
+time_difference :: inline (a: s64, b: s64) -> s64 {
     return max(a,b) - min(a,b);
 }
 

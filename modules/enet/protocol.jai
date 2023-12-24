@@ -187,13 +187,13 @@ PROTOCOL_COMMAND_SIZES :: u32.[
     size_of(Protocol_Send_Fragment)
 ];
 
-protocol_command_size :: (command : Protocol_Command) -> u32 {
-    return xx PROTOCOL_COMMAND_SIZES[cast(u32)(command & .MASK)];
+protocol_command_size :: (command: Protocol_Command) -> u32 {
+    return PROTOCOL_COMMAND_SIZES[cast(u32)(command & .MASK)];
 }
 
 protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeouts: bool) -> Result_Status {
-    header_data : [size_of(Protocol_Header) + size_of(u32)]u8;
-    header : *Protocol_Header = cast(*Protocol_Header)header_data.data;
+    header_data: [size_of(Protocol_Header) + size_of(u32)]u8;
+    header: *Protocol_Header = cast(*Protocol_Header)header_data.data;
     host.continue_sending = true;
 
     while host.continue_sending {
@@ -214,7 +214,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 host.service_time >= peer.next_timeout &&
                 protocol_check_timeouts(host, peer, event) == true {
 
-                if event != null && event.type != .NONE { 
+                if event && event.type != .NONE { 
                     return .SUCCESS;
                 } else {
                     continue;
@@ -246,6 +246,15 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 packet_loss := peer.packets_lost * PEER_PACKET_LOSS_SCALE / peer.packets_sent; 
                 peer.packet_loss_variance -= peer.packet_loss_variance / 4;
 
+                #if DEBUG_PRINT {
+                    log("Peer % packets lost: % packet loss: % packet loss adjusted: % variance: %\n",
+                        peer.incoming_peer_id,
+                        peer.packets_lost,
+                        packet_loss,
+                        peer.packet_loss,
+                        peer.packet_loss_variance);
+                }
+
                 if packet_loss >= peer.packet_loss {
                     peer.packet_loss += (packet_loss - peer.packet_loss) / 8;
                     peer.packet_loss_variance += (packet_loss - peer.packet_loss) / 4;
@@ -255,14 +264,6 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 }
 
                 peer.packet_loss_epoch = host.service_time;
-                #if DEBUG_PRINT {
-                    log("Peer % packets lost: % packet loss: % packet loss adjusted: % variance: %\n",
-                        peer.incoming_peer_id,
-                        peer.packets_lost,
-                        packet_loss,
-                        peer.packet_loss,
-                        peer.packet_loss_variance);
-                }
                 peer.packets_sent = 0;
                 peer.packets_lost = 0;
             }
@@ -321,7 +322,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
 
 protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Status {
     for 0..255 {
-        buffer : [1]Buffer;
+        buffer: [1]Buffer;
         buffer[0].data = host.packet_data.data;
         buffer[0].length = xx host.mtu;
 
@@ -409,7 +410,7 @@ protocol_dispatch_incoming_commands :: (host: *Host, event: *Event) -> Result_St
 
 protocol_send_acknowledgements :: (host: *Host, peer: *Peer) {
     command := *host.commands[host.command_count];
-    buffer := *host.buffers[host.buffer_count];
+    buffer := host.buffers.data + host.buffer_count;
 
     current_ack := list_begin(*peer.acknowledgements); 
 
@@ -489,7 +490,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
             return true;
         }
 
-        if outgoing_cmd.packet != null {
+        if outgoing_cmd.packet {
             peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
         }
 
@@ -512,7 +513,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
 
 protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
     cmd := *host.commands[host.command_count];
-    buffer := *host.buffers[host.buffer_count];
+    buffer := host.buffers.data + host.buffer_count;
 
     window_wrap := false;
     window_exceeded := false;
@@ -526,7 +527,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
         channel := ifx outgoing_cmd.command.header.channel_id < peer.channels.count then *peer.channels[outgoing_cmd.command.header.channel_id] else cast(*Channel)null;
         reliable_window := outgoing_cmd.reliable_seq_number / PEER_RELIABLE_WINDOW_SIZE;
 
-        if channel != null {
+        if channel {
             if !window_wrap && outgoing_cmd.send_attempts < 1 &&
                 !(outgoing_cmd.reliable_seq_number % PEER_RELIABLE_WINDOW_SIZE) && 
                 (channel.reliable_windows[(reliable_window + PEER_RELIABLE_WINDOWS - 1)
@@ -789,27 +790,35 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
 }
 
 protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16, channel_id: u8) -> Protocol_Command {
-    outgoing_cmd : *Outgoing_Command;
+    outgoing_cmd: *Outgoing_Command = null;
     was_sent := true;
 
     for peer.sent_reliable_commands {
         outgoing_cmd = cast(*Outgoing_Command)it;
-        if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
+        if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id {
+            break;
+        }
     }
 
     if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.sent_reliable_commands) {
-        for *peer.outgoing_reliable_commands {
+        for * peer.outgoing_reliable_commands {
             outgoing_cmd = cast(*Outgoing_Command)it;
 
-            if outgoing_cmd.send_attempts < 1 then return .NONE;
+            if outgoing_cmd.send_attempts < 1 {
+                return .NONE;
+            }
             if outgoing_cmd.reliable_seq_number == reliable_seq_number && outgoing_cmd.command.header.channel_id == channel_id then break;
         }
 
-        if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.outgoing_reliable_commands) then return .NONE;
+        if outgoing_cmd == cast(*Outgoing_Command)list_end(*peer.outgoing_reliable_commands) {
+            return .NONE;
+        }
         was_sent = false;
     }
 
-    if outgoing_cmd == null then return .NONE;
+    if outgoing_cmd == null { 
+        return .NONE;
+    }
 
     if channel_id < peer.channels.count {
         channel := *peer.channels[channel_id];
@@ -823,8 +832,10 @@ protocol_remove_sent_reliable_command :: (peer: *Peer, reliable_seq_number: u16,
     cmd_number := outgoing_cmd.command.header.command & .MASK;
     list_remove(outgoing_cmd);
 
-    if outgoing_cmd.packet != null {
-        if was_sent then peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
+    if outgoing_cmd.packet {
+        if was_sent {
+            peer.reliable_data_in_transit -= outgoing_cmd.fragment_length;
+        } 
 
         outgoing_cmd.packet.ref_count -= 1;
 
@@ -900,7 +911,12 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
     }
 
     current_data := host.received_data + header_size;
-    command : *Protocol;
+    command: *Protocol;
+
+    exit_proc :: () #expand {
+        if `event != null && `event.type != .NONE `return .SUCCESS;
+        `return .NONE;
+    }
 
     while current_data < host.received_data + host.received_data_length {
         command = cast(*Protocol)current_data;
@@ -927,26 +943,26 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
         command.header.reliable_seq_number = net_to_host_endian_16(command.header.reliable_seq_number);
 
         if command_number == {
-            case .ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) != .NONE then break;
+            case .ACKNOWLEDGE; if protocol_handle_acknowledge(host, event, peer, command) != .NONE then exit_proc();
             case .CONNECT; 
-                if peer != null  continue;
+                if peer != null exit_proc();
                 peer = protocol_handle_connect(host, header, command);
-                if peer == null break;
-            case .VERIFY_CONNECT;   if protocol_handle_verify_connect(host, event, peer, command) != .NONE then break;
-            case .DISCONNECT;       if protocol_handle_disconnect(host, peer, command) != .NONE then break;
-            case .PING;             if protocol_handle_ping(host, peer, command) != .NONE then break;
-            case .SEND_RELIABLE;    if protocol_handle_send_reliable(host, peer, command, *current_data) != .NONE then break;
-            case .SEND_UNRELIABLE;  if protocol_handle_send_unreliable(host, peer, command, *current_data) != .NONE then break;
-            case .SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) != .NONE then break;
-            case .SEND_FRAGMENT;    if protocol_handle_send_fragment(host, peer, command, *current_data) != .NONE then break;
-            case .BANDWIDTH_LIMIT;  if protocol_handle_bandwidth_limit(host, peer, command) != .NONE then break;
-            case .THROTTLE_CONFIGURE; if protocol_handle_throttle_configure(host, peer, command) != .NONE then break;
-            case .SEND_UNRELIABLE_FRAGMENT; if protocol_handle_send_unreliable_fragment(host, peer, command, *current_data) !=.NONE then break;
-            case; break;
+                if peer == null exit_proc();
+            case .VERIFY_CONNECT;   if protocol_handle_verify_connect(host, event, peer, command) != .NONE then exit_proc();
+            case .DISCONNECT;       if protocol_handle_disconnect(host, peer, command) != .NONE then exit_proc();
+            case .PING;             if protocol_handle_ping(host, peer, command) != .NONE then exit_proc();
+            case .SEND_RELIABLE;    if protocol_handle_send_reliable(host, peer, command, *current_data) != .NONE then exit_proc();
+            case .SEND_UNRELIABLE;  if protocol_handle_send_unreliable(host, peer, command, *current_data) != .NONE then exit_proc();
+            case .SEND_UNSEQUENCED; if protocol_handle_send_unsequenced(host, peer, command, *current_data) != .NONE then exit_proc();
+            case .SEND_FRAGMENT;    if protocol_handle_send_fragment(host, peer, command, *current_data) != .NONE then exit_proc();
+            case .BANDWIDTH_LIMIT;  if protocol_handle_bandwidth_limit(host, peer, command) != .NONE then exit_proc();
+            case .THROTTLE_CONFIGURE; if protocol_handle_throttle_configure(host, peer, command) != .NONE then exit_proc();
+            case .SEND_UNRELIABLE_FRAGMENT; if protocol_handle_send_unreliable_fragment(host, peer, command, *current_data) != .NONE then exit_proc();
+            case; exit_proc();
         }
 
         assert(peer != null);
-        if command.header.command & .FLAG_ACKNOWLEDGE != 0 {
+        if command.header.command & .FLAG_ACKNOWLEDGE {
             if !(flags & PROTOCOL_FLAG_SENT_TIME) break;
 
             sent_time := net_to_host_endian_16(header.sent_time);
@@ -957,16 +973,16 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
                 case .DISCONNECTED; #through;
                 case .ZOMBIE; // do nothing 
                 case .ACKNOWLEDGING_DISCONNECT;
-                    if command.header.command & .MASK == .DISCONNECT peer_queue_acknowledgement(peer, command, sent_time);
+                    if command.header.command & .MASK == .DISCONNECT {
+                        peer_queue_acknowledgement(peer, command, sent_time);
+                    }
                 case;
                     peer_queue_acknowledgement(peer, command, sent_time);
             }
         }
     }
 
-    if event != null && event.type != .NONE return .SUCCESS;
-
-    return .NONE;
+    exit_proc();
 }
 
 
@@ -982,10 +998,9 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
         return .NONE;
     }
 
-    last_receive_time := peer.last_received_time;
     peer.last_received_time = host.service_time;
     peer.earliest_timeout = 0;
-    round_trip_time := cast(u32)(time_difference(host.service_time, received_sent_time));
+    round_trip_time := time_difference(host.service_time, received_sent_time);
 
     peer_throttle(peer, round_trip_time);
     peer.round_trip_time_variance -= peer.round_trip_time_variance / 4;
@@ -1005,11 +1020,11 @@ protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command
     }
 
     if peer.packet_throttle_epoch == 0 || time_difference(host.service_time, peer.packet_throttle_epoch) >= peer.packet_throttle_interval {
-        peer.last_round_trip_time = peer.lowest_round_trip_time;
-        peer.last_round_trip_time_variance = peer.highest_round_trip_time_variance;
-        peer.lowest_round_trip_time = peer.round_trip_time;
+        peer.last_round_trip_time             = peer.lowest_round_trip_time;
+        peer.last_round_trip_time_variance    = peer.highest_round_trip_time_variance;
+        peer.lowest_round_trip_time           = peer.round_trip_time;
         peer.highest_round_trip_time_variance = peer.round_trip_time_variance;
-        peer.packet_throttle_epoch = host.service_time;
+        peer.packet_throttle_epoch            = host.service_time;
     }
 
     received_reliable_seq_number := net_to_host_endian_16(command.acknowledge.received_reliable_seq_number);
@@ -1266,9 +1281,7 @@ protocol_handle_send_fragment :: (host: *Host, peer: *Peer, command: *Protocol, 
 
     start_cmd : *Incoming_Command;
 
-    // This is supposed to be :reverse but it's not working with that flag. (not searching the list with 1 entry)
-    // this shouldn't make a difference or might be slower? 
-    for channel.incoming_reliable_commands {
+    for :reverse channel.incoming_reliable_commands {
         incoming_cmd := cast(*Incoming_Command)it;
 
         if start_seq_number >= channel.incoming_reliable_seq_number {
@@ -1348,9 +1361,7 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
 
     start_cmd : *Incoming_Command;
 
-    // This should be :reverse but it doesn't seem to be working correctly (not searching the list)
-    // temporary change until we figure it out. It shouldn't matter or might be slightly slower?
-    for channel.incoming_unreliable_commands {
+    for :reverse channel.incoming_unreliable_commands {
         incoming_cmd := cast(*Incoming_Command)it;
 
         if reliable_seq_number >= channel.incoming_reliable_seq_number {
@@ -1475,7 +1486,7 @@ protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) 
 
     if peer.state != .CONNECTING && peer.state < .CONNECTION_SUCCEEDED {
         peer_reset(peer);
-    } else if event != null {
+    } else if event {
         event.type = .DISCONNECT_TIMEOUT;
         event.peer = peer;
         event.data = 0;

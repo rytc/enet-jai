@@ -80,14 +80,14 @@ Peer :: struct {
     timeout_minimum : s64; // :Time
     timeout_maximum : s64; // :Time
     timeout_limit : s64; // :Time
-    round_trip_time : u32; // :Time
-    round_trip_timeout : u32; // :Time
-    round_trip_time_variance : u32; // :Time
-    lowest_round_trip_time_variance : u32; // :Time
-    highest_round_trip_time_variance : u32; // :Time
-    last_round_trip_time_variance : u32; // :Time
-    last_round_trip_time : u32; // :Time
-    lowest_round_trip_time : u32; // :Time
+    round_trip_time : s64; // :Time
+    round_trip_timeout : s64; // :Time
+    round_trip_time_variance : s64; // :Time
+    lowest_round_trip_time_variance : s64; // :Time
+    highest_round_trip_time_variance : s64; // :Time
+    last_round_trip_time_variance : s64; // :Time
+    last_round_trip_time : s64; // :Time
+    lowest_round_trip_time : s64; // :Time
 
     needs_dispatch : bool;
     event_data : u32;
@@ -261,9 +261,9 @@ peer_ping_interval :: (peer: *Peer, interval: u32) {
 }
 
 peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max: u32) {
-    peer.timeout_limit = ifx timeout_limit then timeout_limit else PEER_TIMEOUT_LIMIT;
-    peer.timeout_minimum = ifx timeout_min then timeout_min else PEER_TIMEOUT_MINIMUM;
-    peer.timeout_maximum = ifx timeout_max then timeout_max else PEER_TIMEOUT_MAXIMUM;
+    peer.timeout_limit = ifx timeout_limit > 0 then timeout_limit else PEER_TIMEOUT_LIMIT;
+    peer.timeout_minimum = ifx timeout_min > 0 then timeout_min else PEER_TIMEOUT_MINIMUM;
+    peer.timeout_maximum = ifx timeout_max > 0 then timeout_max else PEER_TIMEOUT_MAXIMUM;
 }
 
 peer_reset :: (peer: *Peer) {
@@ -287,7 +287,7 @@ peer_reset :: (peer: *Peer) {
     peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
     peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
     peer.ping_interval          = PEER_PING_INTERVAL;
-    peer.mtu                    = peer.host.mtu;
+    peer.mtu                    = host.mtu;
     peer.packet_throttle        = PEER_DEFAULT_PACKET_THROTTLE;
     peer.packet_throttle_limit  = PEER_PACKET_THROTTLE_SCALE;
     peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
@@ -414,7 +414,7 @@ peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
     return packet;
 }
 
-peer_throttle :: (peer: *Peer, round_trip_time: u32) -> Result_Status {
+peer_throttle :: (peer: *Peer, round_trip_time: s64) -> Result_Status {
     if peer.last_round_trip_time <= peer.last_round_trip_time_variance {
         peer.packet_throttle = peer.packet_throttle_limit;
     } else if round_trip_time < peer.last_round_trip_time {

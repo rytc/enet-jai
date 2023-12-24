@@ -1,7 +1,7 @@
 
 List_Node :: struct {
-    prev : *List_Node;
-    next : *List_Node;
+    prev: *List_Node;
+    next: *List_Node;
 }
 
 List :: struct {

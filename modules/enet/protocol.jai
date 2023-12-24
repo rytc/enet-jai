@@ -41,134 +41,134 @@ Protocol_Command :: enum u8 {
 }
 
 Protocol_Header :: struct {
-    peer_id   : u16;
-    sent_time : u16;
+    peer_id:   u16;
+    sent_time: u16;
 }
 
 Protocol_Command_Header :: struct {
-    command             : Protocol_Command;
-    channel_id          : u8;
-    reliable_seq_number : u16;
+    command:             Protocol_Command;
+    channel_id:          u8;
+    reliable_seq_number: u16;
 }
 
 Protocol_Acknowledge :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    received_reliable_seq_number : u16;
-    received_sent_time           : u16;
+    received_reliable_seq_number: u16;
+    received_sent_time:           u16;
 }
 
 Protocol_Connect :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    outgoing_peer_id    : u16;
-    incoming_session_id : u8;
-    outgoing_session_id : u8;
+    outgoing_peer_id:    u16;
+    incoming_session_id: u8;
+    outgoing_session_id: u8;
     
-    mtu           : u32;
-    window_size   : u32;
-    channel_count : u32;
+    mtu:            u32;
+    window_size:    u32;
+    channel_count:  u32;
 
-    incoming_bandwidth : u32;
-    outgoing_bandwidth : u32;
+    incoming_bandwidth: u32;
+    outgoing_bandwidth: u32;
 
-    packet_throttle_interval     : u32;
-    packet_throttle_acceleration : u32;
-    packet_throttle_deceleration : u32;
+    packet_throttle_interval:     u32;
+    packet_throttle_acceleration: u32;
+    packet_throttle_deceleration: u32;
     
-    connect_id : u32;
-    data       : u32;
+    connect_id: u32;
+    data:       u32;
 }
 
 Protocol_Verify_Connect :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    outgoing_peer_id    : u16;
-    incoming_session_id : u8;
-    outgoing_session_id : u8;
+    outgoing_peer_id:    u16;
+    incoming_session_id: u8;
+    outgoing_session_id: u8;
 
-    mtu           : u32;
-    window_size   : u32;
-    channel_count : u32;
+    mtu:           u32;
+    window_size:   u32;
+    channel_count: u32;
 
-    incoming_bandwidth : u32;
-    outgoing_bandwidth : u32;
+    incoming_bandwidth: u32;
+    outgoing_bandwidth: u32;
 
-    packet_throttle_interval     : u32;
-    packet_throttle_acceleration : u32;
-    packet_throttle_deceleration : u32;
+    packet_throttle_interval:     u32;
+    packet_throttle_acceleration: u32;
+    packet_throttle_deceleration: u32;
 
-    connect_id : u32;
+    connect_id: u32;
 }
 
 Protocol_Disconnect :: struct {
-    using header : Protocol_Command_Header;
-    data : u32;
+    using header: Protocol_Command_Header;
+    data: u32;
 }
 
 Protocol_Ping :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 }
 
 Protocol_Send_Reliable :: struct {
-    using header : Protocol_Command_Header;
-    data_length  : u16;
+    using header: Protocol_Command_Header;
+    data_length:  u16;
 }
 
 Protocol_Send_Unreliable :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    unreliable_seq_number : u16;
-    data_length           : u16;
+    unreliable_seq_number: u16;
+    data_length:           u16;
 }
 
 Protocol_Send_Fragment :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    start_seq_number : u16;
-    data_length      : u16;
-    fragment_count   : u32;
-    fragment_number  : u32;
-    total_length     : u32;
-    fragment_offset  : u32;
+    start_seq_number: u16;
+    data_length:      u16;
+    fragment_count:   u32;
+    fragment_number:  u32;
+    total_length:     u32;
+    fragment_offset:  u32;
 }
 
 Protocol_Send_Unsequenced :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    unsequenced_group : u16;
-    data_length       : u16;
+    unsequenced_group: u16;
+    data_length:       u16;
 }
 
 Protocol_Bandwidth_Limit :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    incoming_bandwidth : u32;
-    outgoing_bandwidth : u32;
+    incoming_bandwidth: u32;
+    outgoing_bandwidth: u32;
 }
 
 Protocol_Throttle_Configure :: struct {
-    using header : Protocol_Command_Header;
+    using header: Protocol_Command_Header;
 
-    packet_throttle_interval     : u32;
-    packet_throttle_acceleration : u32;
-    packet_throttle_deceleration : u32;
+    packet_throttle_interval:     u32;
+    packet_throttle_acceleration: u32;
+    packet_throttle_deceleration: u32;
 }
 
 
 Protocol :: union {
-    header             : Protocol_Command_Header;
-    acknowledge        : Protocol_Acknowledge;
-    connect            : Protocol_Connect;
-    verify_connect     : Protocol_Verify_Connect;
-    disconnect         : Protocol_Disconnect;
-    ping               : Protocol_Ping;
-    send_reliable      : Protocol_Send_Reliable;
-    send_unreliable    : Protocol_Send_Unreliable;
-    send_unsequenced   : Protocol_Send_Unsequenced;
-    send_fragment      : Protocol_Send_Fragment;
-    bandwidth_limit    : Protocol_Bandwidth_Limit;
-    throttle_configure : Protocol_Throttle_Configure;
+    header:             Protocol_Command_Header;
+    acknowledge:        Protocol_Acknowledge;
+    connect:            Protocol_Connect;
+    verify_connect:     Protocol_Verify_Connect;
+    disconnect:         Protocol_Disconnect;
+    ping:               Protocol_Ping;
+    send_reliable:      Protocol_Send_Reliable;
+    send_unreliable:    Protocol_Send_Unreliable;
+    send_unsequenced:   Protocol_Send_Unsequenced;
+    send_fragment:      Protocol_Send_Fragment;
+    bandwidth_limit:    Protocol_Bandwidth_Limit;
+    throttle_configure: Protocol_Throttle_Configure;
 }
 
 PROTOCOL_COMMAND_SIZES :: u32.[
@@ -187,7 +187,7 @@ PROTOCOL_COMMAND_SIZES :: u32.[
     size_of(Protocol_Send_Fragment)
 ];
 
-protocol_command_size :: (command: Protocol_Command) -> u32 {
+protocol_command_size :: inline (command: Protocol_Command) -> u32 {
     return PROTOCOL_COMMAND_SIZES[cast(u32)(command & .MASK)];
 }
 
@@ -1079,31 +1079,32 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
 
     if channel_count > host.channel_limit channel_count = host.channel_limit;
 
-    peer.channels = NewArray(channel_count, Channel);
-    peer.state = .ACKNOWLEDGING_CONNECT;
+    peer.channels   = NewArray(channel_count, Channel);
+    peer.state      = .ACKNOWLEDGING_CONNECT;
     peer.connect_id = command.connect.connect_id;
-    peer.address = host.received_address;
-    peer.outgoing_peer_id = net_to_host_endian_16(command.connect.outgoing_peer_id);
-    peer.incoming_bandwidth = net_to_host_endian_32(command.connect.incoming_bandwidth);
-    peer.outgoing_bandwidth = net_to_host_endian_32(command.connect.outgoing_bandwidth);
-    peer.packet_throttle_interval = net_to_host_endian_32(command.connect.packet_throttle_interval);
-    peer.packet_throttle_acceleration = net_to_host_endian_32(command.connect.packet_throttle_acceleration);
-    peer.packet_throttle_deceleration = net_to_host_endian_32(command.connect.packet_throttle_deceleration);
+    peer.address    = host.received_address;
     peer.event_data = net_to_host_endian_32(command.connect.data);
 
-    incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
-    incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
-    if incoming_session_id == peer.outgoing_session_id {
-        incoming_session_id = (incoming_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
+    peer.outgoing_peer_id   = net_to_host_endian_16(command.connect.outgoing_peer_id);
+    peer.incoming_bandwidth = net_to_host_endian_32(command.connect.incoming_bandwidth);
+    peer.outgoing_bandwidth = net_to_host_endian_32(command.connect.outgoing_bandwidth);
+
+    peer.packet_throttle_interval     = net_to_host_endian_32(command.connect.packet_throttle_interval);
+    peer.packet_throttle_acceleration = net_to_host_endian_32(command.connect.packet_throttle_acceleration);
+    peer.packet_throttle_deceleration = net_to_host_endian_32(command.connect.packet_throttle_deceleration);
+
+    shift_session_id :: inline (session_id: u8) -> u8 {
+        return (session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
     }
+
+    incoming_session_id := ifx command.connect.incoming_session_id == 0xFF then peer.outgoing_session_id else command.connect.incoming_session_id;
+    incoming_session_id = shift_session_id(incoming_session_id);
+    if incoming_session_id == peer.outgoing_session_id then incoming_session_id = shift_session_id(incoming_session_id);
     peer.outgoing_session_id = incoming_session_id;
 
     outgoing_session_id := ifx command.connect.outgoing_session_id == 0xFF then peer.incoming_session_id else command.connect.outgoing_session_id;
-    outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
-
-    if outgoing_session_id == peer.incoming_session_id {
-        outgoing_session_id = (outgoing_session_id + 1) & (PROTOCOL_SESSION_MASK >> PROTOCOL_SESSION_SHIFT);
-    }
+    outgoing_session_id = shift_session_id(outgoing_session_id);
+    if outgoing_session_id == peer.incoming_session_id then outgoing_session_id = shift_session_id(outgoing_session_id);
     peer.incoming_session_id = outgoing_session_id;
 
     for * channel: peer.channels {
@@ -1119,13 +1120,9 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
         memset(channel.reliable_windows.data, 0, size_of(u16)*PEER_RELIABLE_WINDOWS);
     }
 
-    mtu := net_to_host_endian_32(command.connect.mtu);
-    if mtu < PROTOCOL_MIN_MTU mtu = PROTOCOL_MIN_MTU;
-    else if mtu > PROTOCOL_MAX_MTU mtu = PROTOCOL_MAX_MTU;
-    peer.mtu = mtu;
+    peer.mtu = min(max(net_to_host_endian_32(command.connect.mtu), PROTOCOL_MIN_MTU), PROTOCOL_MAX_MTU);
 
-
-    if host.outgoing_bandwidth == 0  && peer.incoming_bandwidth == 0 {
+    if host.outgoing_bandwidth == 0 && peer.incoming_bandwidth == 0 {
         peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;
     } else if host.outgoing_bandwidth == 0 || peer.incoming_bandwidth == 0 {
         peer.window_size = (max(host.outgoing_bandwidth, peer.incoming_bandwidth) / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
@@ -1133,17 +1130,26 @@ protocol_handle_connect :: (host: *Host, header: *Protocol_Header, command: Prot
         peer.window_size = (min(host.outgoing_bandwidth, peer.incoming_bandwidth) / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
     }
 
-    if peer.window_size < PROTOCOL_MIN_WINDOW_SIZE then peer.window_size = PROTOCOL_MIN_WINDOW_SIZE;
-    else if peer.window_size > PROTOCOL_MAX_WINDOW_SIZE then peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    if peer.window_size < PROTOCOL_MIN_WINDOW_SIZE {
+        peer.window_size = PROTOCOL_MIN_WINDOW_SIZE;
+    } else if peer.window_size > PROTOCOL_MAX_WINDOW_SIZE {
+        peer.window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    }
 
-    window_size : u32;
-    if host.incoming_bandwidth == 0 then window_size = PROTOCOL_MAX_WINDOW_SIZE;
-    else window_size = (host.incoming_bandwidth / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
+    window_size: u32;
+    if host.incoming_bandwidth == 0 {
+        window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    } else {
+        window_size = (host.incoming_bandwidth / PEER_WINDOW_SIZE_SCALE) * PROTOCOL_MIN_WINDOW_SIZE;
+    }
 
     if window_size > net_to_host_endian_32(command.connect.window_size) then window_size = net_to_host_endian_32(command.connect.window_size);
 
-    if window_size < PROTOCOL_MIN_WINDOW_SIZE then window_size = PROTOCOL_MIN_WINDOW_SIZE;
-    else if window_size > PROTOCOL_MAX_WINDOW_SIZE then window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    if window_size < PROTOCOL_MIN_WINDOW_SIZE {
+        window_size = PROTOCOL_MIN_WINDOW_SIZE;
+    } else if window_size > PROTOCOL_MAX_WINDOW_SIZE {
+        window_size = PROTOCOL_MAX_WINDOW_SIZE;
+    }
 
     verify_cmd : Protocol;
     verify_cmd.header.command = Protocol_Command.VERIFY_CONNECT | .FLAG_ACKNOWLEDGE;
@@ -1206,7 +1212,6 @@ protocol_handle_send_reliable :: (host: *Host, peer: *Peer, command: *Protocol, 
 }
 
 protocol_handle_send_unreliable :: (host: *Host, peer: *Peer, command: *Protocol, current_data: **u8) -> Result_Status {
-
     if command.header.channel_id >= peer.channels.count || peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER return .ERROR;
 
     data_length := net_to_host_endian_16(command.send_unreliable.data_length);
@@ -1359,7 +1364,7 @@ protocol_handle_send_unreliable_fragment :: (host: *Host, peer: *Peer, command: 
        fragment_offset > total_length ||
        fragment_length > total_length - fragment_offset then return .ERROR;
 
-    start_cmd : *Incoming_Command;
+    start_cmd: *Incoming_Command;
 
     for :reverse channel.incoming_unreliable_commands {
         incoming_cmd := cast(*Incoming_Command)it;
@@ -1497,5 +1502,4 @@ protocol_notify_disconnect_timeout :: (host: *Host, peer: *Peer, event: *Event) 
         protocol_dispatch_state(host, peer, .ZOMBIE);
     }
 }
-
 

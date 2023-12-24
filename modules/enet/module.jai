@@ -19,25 +19,25 @@ Packet_Flags :: enum_flags u16 {
 }
 
 Address :: struct {
-    host          : in6_addr;
-    port          : u16;
-    sin6_scope_id : u16;
+    host: in6_addr;
+    port: u16;
+    sin6_scope_id: u16;
 }
 
 Packet :: struct {
-    ref_count   :  s32;
-    flags       :  Packet_Flags;
-    data        : *u8;
-    data_length :  u32;
-    user_data   : *Any;
+    ref_count:    s32;
+    flags:        Packet_Flags;
+    data:         *u8;
+    data_length:  u32;
+    user_data:    *Any;
 }
 
 Event :: struct {
-    type       : Event_Type;
-    peer       : *Peer;
-    channel_id : u8;
-    data       : u32;
-    packet     : *Packet;
+    type:        Event_Type;
+    peer:        *Peer;
+    channel_id:  u8;
+    data:        u32;
+    packet:      *Packet;
 }
 
 initialize :: () -> bool {
@@ -80,8 +80,8 @@ packet_create :: (data: []u8, flags: Packet_Flags = .RELIABLE) -> *Packet #expan
     return packet_create(cast(*u8)data.data, data.count, flags);
 }
 
-packet_create :: (data : *u8, data_length : int, flags : Packet_Flags = .RELIABLE) -> *Packet {
-    packet : *Packet;
+packet_create :: (data: *u8, data_length: int, flags: Packet_Flags = .RELIABLE) -> *Packet {
+    packet: *Packet;
 
     assert(data_length >= 0 && data_length <= U32_MAX);
 
@@ -151,28 +151,28 @@ Result_Status :: enum {
 }
 
 Channel :: struct {
-    used_reliable_windows : type_of(PEER_RELIABLE_WINDOWS); 
-    reliable_windows      : [PEER_RELIABLE_WINDOWS] u16;
+    used_reliable_windows: type_of(PEER_RELIABLE_WINDOWS); 
+    reliable_windows:      [PEER_RELIABLE_WINDOWS] u16;
 
-    outgoing_reliable_seq_number   : u16;
-    outgoing_unreliable_seq_number : u16;
+    outgoing_reliable_seq_number:   u16;
+    outgoing_unreliable_seq_number: u16;
 
-    incoming_reliable_seq_number : u16;
-    incoming_reliable_commands   : List;
+    incoming_reliable_seq_number: u16;
+    incoming_reliable_commands:   List;
 
-    incoming_unreliable_seq_number : u16;
-    incoming_unreliable_commands   : List;
+    incoming_unreliable_seq_number: u16;
+    incoming_unreliable_commands:   List;
 }
 
-channel_reset :: (channel: *Channel) {
-    channel.outgoing_reliable_seq_number = 0;
-    channel.outgoing_unreliable_seq_number = 0;
-    channel.incoming_reliable_seq_number = 0;
-    channel.incoming_unreliable_seq_number = 0;
-    channel.used_reliable_windows = 0;
-    list_clear(*channel.incoming_reliable_commands);
-    list_clear(*channel.incoming_unreliable_commands);
-    memset(channel.reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(u16));
+channel_reset :: (using channel: *Channel) {
+    outgoing_reliable_seq_number   = 0;
+    outgoing_unreliable_seq_number = 0;
+    incoming_reliable_seq_number   = 0;
+    incoming_unreliable_seq_number = 0;
+    used_reliable_windows          = 0;
+    list_clear(*incoming_reliable_commands);
+    list_clear(*incoming_unreliable_commands);
+    memset(reliable_windows.data, 0, PEER_RELIABLE_WINDOWS * size_of(u16));
 }
 
 // Should match WSABUF
@@ -182,24 +182,24 @@ Buffer :: struct {
 }
 
 Acknowledgement :: struct {
-    #as using list : List_Node;
-    sent_time      : u16; // :Time
-    command        : Protocol;
+    #as using list: List_Node;
+    sent_time:      u16; // :Time
+    command:        Protocol;
 }
 
 Command :: struct {
-    #as using list : List_Node;
-    packet         : *Packet;
+    #as using list:  List_Node;
+    packet:         *Packet;
 }
 
 Incoming_Command :: struct {
-    #as using base        : Command;
-    reliable_seq_number   : u16;
-    unreliable_seq_number : u16;
-    command               : Protocol;
-    fragment_count        : u32;
-    fragments_remaining   : u32;
-    fragments             : []u32;
+    #as using base:         Command;
+    reliable_seq_number:    u16;
+    unreliable_seq_number:  u16;
+    command:                Protocol;
+    fragment_count:         u32;
+    fragments_remaining:    u32;
+    fragments:              []u32;
 }
 
 Outgoing_Command :: struct {
@@ -224,21 +224,20 @@ random_seed :: () -> u64 {
 }
 
 lookup_host :: (name: string, no_dns: bool) -> Address, bool {
-    result_list : *addrinfo;
-    result_address : Address;
+    result_list: *addrinfo;
+    result_address: Address;
 
-    hints : addrinfo;
+    hints: addrinfo;
     hints.ai_family = AF_UNSPEC;
 
     if no_dns hints.ai_flags = .NUMERICHOST;
 
     hostname := temp_c_string(name);
-    if getaddrinfo(hostname, null, *hints, *result_list) != 0 {
-        freeaddrinfo(result_list);
-        return result_address, false;
-    }
 
     defer freeaddrinfo(result_list);
+    if getaddrinfo(hostname, null, *hints, *result_list) != 0 {
+        return result_address, false;
+    }
 
     result := result_list;
     while result != null {
@@ -270,7 +269,7 @@ map_ip4_to_ip6 :: (addr: in_addr) -> in6_addr {
         return xx V6_NO_ADDR; 
     }
 
-    result : in6_addr;
+    result: in6_addr;
     result.u.Byte[10] = 0xFF;
     result.u.Byte[11] = 0xFF;
     result.u.Byte[12] = (cast(*u8)*addr.S_un.S_addr)[0];
@@ -282,7 +281,7 @@ map_ip4_to_ip6 :: (addr: in_addr) -> in6_addr {
 }
 
 map_ip4_to_ip6 :: (addr: in6_addr) -> in_addr {
-    result : in_addr;
+    result: in_addr;
     result.S_addr[0] = (cast(*u8)*addr.S_addr)[0];
     result.S_addr[1] = (cast(*u8)*addr.S_addr)[1];
     result.S_addr[2] = (cast(*u8)*addr.S_addr)[2];

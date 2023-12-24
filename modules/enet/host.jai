@@ -23,14 +23,14 @@ Host :: struct {
     command_count: u32;
 
     header_flags: u32;
-    buffers: [MAX_BUFFER_COUNT]Buffer;
+
+    buffers:      [MAX_BUFFER_COUNT]Buffer;
     buffer_count: u32;
 
-    total_sent_packets: u32;
-    total_sent_data:    u64;
-
-    maximum_packet_size: u32;
-    packet_data: [2 * PROTOCOL_MAX_MTU]u8; // 2D array in C. Index [1] is used for compression which is TODO
+    total_sent_packets:     u32;
+    total_sent_data:        u64;
+    maximum_packet_size:    u32;
+    packet_data:            [2 * PROTOCOL_MAX_MTU]u8; // 2D array in C. Index [1] is used for compression which is TODO
     packet_size:            u32;
     total_received_packets: u32;
 
@@ -127,7 +127,7 @@ host_destroy :: (host: *Host) {
 }
 
 host_connect :: (host: *Host, address: Address, channel_count: int, data: u32) -> *Peer {
-    current_peer : *Peer;
+    current_peer: *Peer;
 
     for * host.peers {
         if it.state == .DISCONNECTED {
@@ -349,8 +349,8 @@ host_bandwidth_throttle :: (host: *Host) {
     remaining_peers := host.connected_peers;
     if remaining_peers == 0 return;
 
-    data_total :u32 = U32_MAX;
-    bandwidth  :u32 = U32_MAX;
+    data_total :u32= U32_MAX;
+    bandwidth  :u32= U32_MAX;
 
     if host.outgoing_bandwidth != 0 {
         data_total = 0;
@@ -363,7 +363,7 @@ host_bandwidth_throttle :: (host: *Host) {
     }
 
     needs_adjustment := host.bandwidth_limited_peers > 0;
-    throttle :u32 = 0;
+    throttle :u32= 0;
 
     while remaining_peers > 0 && needs_adjustment {
         needs_adjustment = false;
@@ -420,9 +420,8 @@ host_bandwidth_throttle :: (host: *Host) {
 
     if host.recalculate_bandwidth_limits {
         host.recalculate_bandwidth_limits = false;
-
-        remaining_peers = host.connected_peers;
-        bandwidth = host.incoming_bandwidth;
+        remaining_peers  = host.connected_peers;
+        bandwidth        = host.incoming_bandwidth;
         needs_adjustment = true;
         bandwidth_limit :u32= 0;
 

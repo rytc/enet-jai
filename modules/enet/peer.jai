@@ -13,84 +13,84 @@ Peer_State :: enum {
 
 Peer :: struct {
     #as using dispatch_list: List_Node;
-    state : Peer_State;
-    channels : [] Channel;
-    address : Address;
-    connect_id : u32;
-    data : *void;
-    mtu : u32;
-    host: *Host;
 
-    window_size : u32;
+    state:      Peer_State;
+    channels:   []Channel;
+    address:    Address;
+    connect_id: u32;
+    data:       *void;
+    mtu:        u32;
+    host:       *Host;
 
-    outgoing_peer_id : u16;
-    incoming_peer_id : u16;
+    window_size: u32;
 
-    outgoing_session_id : u8; 
-    incoming_session_id : u8;
+    outgoing_peer_id: u16;
+    incoming_peer_id: u16;
 
-    outgoing_data_total : u32;
-    incoming_data_total : u32;
+    outgoing_session_id: u8; 
+    incoming_session_id: u8;
 
-    outgoing_bandwidth : u32;
-    incoming_bandwidth : u32;
-    outgoing_bandwidth_throttle_epoch : s64; // :Time
-    incoming_bandwidth_throttle_epoch : s64; // :Time
+    outgoing_data_total: u32;
+    incoming_data_total: u32;
 
-    packet_throttle : u32;
-    packet_throttle_limit : u32;
-    packet_throttle_interval : u32;
-    packet_throttle_acceleration : u32;
-    packet_throttle_deceleration : u32;
-    packet_throttle_epoch : s64; // :Time
-    packet_throttle_counter : u32;
+    outgoing_bandwidth: u32;
+    incoming_bandwidth: u32;
+    outgoing_bandwidth_throttle_epoch: s64; // :Time
+    incoming_bandwidth_throttle_epoch: s64; // :Time
 
-    outgoing_reliable_seq_number : u16;
-    outgoing_unsequenced_group : u16;
-    unsequenced_window : [PEER_UNSEQUENCED_WINDOW_SIZE / 32]u32;
-    incoming_unsequenced_group : u16;
+    packet_throttle:              u32;
+    packet_throttle_limit:        u32;
+    packet_throttle_interval:     u32;
+    packet_throttle_acceleration: u32;
+    packet_throttle_deceleration: u32;
+    packet_throttle_epoch:        s64; // :Time
+    packet_throttle_counter:      u32;
 
-    outgoing_reliable_commands : List;
-    outgoing_unreliable_commands : List;
-    acknowledgements : List;
+    outgoing_reliable_seq_number: u16;
+    outgoing_unsequenced_group:   u16;
+    unsequenced_window:           [PEER_UNSEQUENCED_WINDOW_SIZE / 32]u32;
+    incoming_unsequenced_group:   u16;
 
-    sent_reliable_commands : List;
-    sent_unreliable_commands : List;
-    dispatched_commands : List;
+    outgoing_reliable_commands:    List;
+    outgoing_unreliable_commands:  List;
+    acknowledgements:              List;
+    sent_reliable_commands:        List;
+    sent_unreliable_commands:      List;
+    dispatched_commands:           List;
 
-    next_timeout : s64; // :Time
-    last_received_time : s64; // :Time
-    last_sent_time : s64; // :Time
-    ping_interval : s64; // :Time
+    next_timeout:       s64; // :Time
+    last_received_time: s64; // :Time
+    last_sent_time:     s64; // :Time
+    ping_interval:      s64; // :Time
+    packet_loss_epoch:  s64; // :Time
 
-    packet_loss_epoch : s64; // :Time
-    packets_sent : u32;
-    packets_lost : u32;
-    packet_loss : u32;
-    packet_loss_variance : u32;
+    packets_sent:         u32;
+    packets_lost:         u32;
+    packet_loss:          u32;
+    packet_loss_variance: u32;
 
-    total_data_sent : u64;
-    total_data_received : u64;
-    total_packets_lost : u32;
-    total_packets_sent : u32;
-    total_waiting_data : u32;
-    reliable_data_in_transit : u32;
+    total_data_sent:          u64;
+    total_data_received:      u64;
+    total_packets_lost:       u32;
+    total_packets_sent:       u32;
+    total_waiting_data:       u32;
+    reliable_data_in_transit: u32;
     
-    earliest_timeout : s64; // :Time
-    timeout_minimum : s64; // :Time
-    timeout_maximum : s64; // :Time
-    timeout_limit : s64; // :Time
-    round_trip_time : s64; // :Time
-    round_trip_timeout : s64; // :Time
-    round_trip_time_variance : s64; // :Time
-    lowest_round_trip_time_variance : s64; // :Time
-    highest_round_trip_time_variance : s64; // :Time
-    last_round_trip_time_variance : s64; // :Time
-    last_round_trip_time : s64; // :Time
-    lowest_round_trip_time : s64; // :Time
+    earliest_timeout:                 s64; // :Time
+    timeout_minimum:                  s64; // :Time
+    timeout_maximum:                  s64; // :Time
+    timeout_limit:                    s64; // :Time
+    round_trip_time:                  s64; // :Time
+    round_trip_timeout:               s64; // :Time
+    round_trip_time_variance:         s64; // :Time
+    lowest_round_trip_time_variance:  s64; // :Time
+    highest_round_trip_time_variance: s64; // :Time
+    last_round_trip_time_variance:    s64; // :Time
+    last_round_trip_time:             s64; // :Time
+    lowest_round_trip_time:           s64; // :Time
 
-    needs_dispatch : bool;
-    event_data : u32;
+    needs_dispatch: bool;
+    event_data:     u32;
 }
 
 peer_send :: (peer: *Peer, channel_id: int, packet: *Packet) -> Result_Status {
@@ -246,9 +246,9 @@ peer_disconnect_later :: (peer: *Peer, data: u32) {
 }
 
 peer_ping :: (peer: *Peer) {
-    command : Protocol;
+    command: Protocol;
 
-    if peer.state != .CONNECTED then return;
+    if peer.state != .CONNECTED return;
 
     command.header.command = Protocol_Command.PING | .FLAG_ACKNOWLEDGE;
     command.header.channel_id = 0xFF;
@@ -306,7 +306,6 @@ peer_reset :: (peer: *Peer) {
 }
 
 peer_reset_queues :: (peer: *Peer) {
-    
     if peer.needs_dispatch {
         list_remove(peer);
         peer.needs_dispatch = false;
@@ -372,7 +371,7 @@ PEER_UNSEQUENCED_WINDOW_SIZE      :: 1024;
 PEER_UNSEQUENCED_WINDOWS          :: 64;
 PEER_FREE_UNSEQUENCED_WINDOWS     :: 32;
 
-DUMMY_COMMAND : Incoming_Command; 
+DUMMY_COMMAND: Incoming_Command; 
 
 peer_on_connect :: (peer: *Peer) {
     if peer.state != .CONNECTED && peer.state != .DISCONNECT_LATER {
@@ -523,7 +522,7 @@ peer_queue_acknowledgement :: (peer: *Peer, command: *Protocol, sent_time: u16) 
 }
 
 peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, data_length: u32, flags: Packet_Flags, fragment_count: u32) -> *Incoming_Command {
-    packet : *Packet;
+    packet: *Packet;
     channel := *peer.channels[command.header.channel_id];
 
     // The original c version uses goto
@@ -792,5 +791,4 @@ peer_remove_incoming_commands :: (list: *List, start_cmd: *List_Node, end_cmd: *
         free(incoming_cmd);
     }
 }
-
 

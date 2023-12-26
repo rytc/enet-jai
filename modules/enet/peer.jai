@@ -272,7 +272,12 @@ peer_reset :: (peer: *Peer) {
     host := peer.host;
     incoming_peer_id := peer.incoming_peer_id;
 
+    // Hold onto peer.data pointer so that when the disconnect event is
+    // sent, the program can use it.
+    peer_data := peer.data;
+
     peer.* = Peer.{};
+    peer.data = peer_data;
     peer.host = host;
     peer.incoming_peer_id = incoming_peer_id;
     peer.outgoing_session_id = 0xFF;

@@ -623,7 +623,7 @@ protocol_send_reliable_outgoing_commands :: (host: *Host, peer: *Peer) -> bool {
 
 protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) {
     command := *host.commands[host.command_count];
-    buffer := *host.buffers[host.buffer_count];
+    buffer := host.buffers.data + host.buffer_count;
 
     current_cmd := list_begin(*peer.outgoing_unreliable_commands);
     while current_cmd != list_end(*peer.outgoing_unreliable_commands) {

@@ -631,7 +631,7 @@ protocol_send_unreliable_outgoing_commands :: (host: *Host, peer: *Peer) {
         cmd_size := protocol_command_size(outgoing_cmd.command.header.command);
 
         if command - host.commands.data >= PROTOCOL_MAX_PACKET_COMMANDS ||
-            buffer - host.buffers.data >= MAX_BUFFER_COUNT ||
+            (buffer + 1) - host.buffers.data >= MAX_BUFFER_COUNT ||
             peer.mtu - host.packet_size < size_of(Protocol_Acknowledge) ||
             (outgoing_cmd.packet != null && peer.mtu - host.packet_size < cmd_size + outgoing_cmd.fragment_length) {
 

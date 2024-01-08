@@ -1,4 +1,4 @@
-enet :: #import "enet";
+enet :: #import,dir "../../enet";
 #import "Basic";
 
 main :: () {

@@ -1,6 +1,11 @@
 enet :: #import,dir "../../enet";
 #import "Basic";
 
+SERVER_ADDRESS :: "127.0.0.1";
+SERVER_PORT :: 1234;
+WAIT_FOR_PACKETS_MS :: 16;
+MAX_CLIENTS :: 16;
+
 main :: () {
     server: bool;
     args := get_command_line_arguments();
@@ -21,7 +26,6 @@ main :: () {
         run_client();
 }
 
-
 run_server :: () {
     log("Running as SERVER");
 
@@ -29,31 +33,36 @@ run_server :: () {
     address.host = enet.HOST_ANY;
     address.port = SERVER_PORT;
 
-    host, success := enet.host_create(*address, 16, 10, 0, 0);
+    host, success := enet.host_create(*address, MAX_CLIENTS, 10, 0, 0);
     if !success {
         print("Failed to create server\n");
         return;
     }
     defer enet.host_destroy(host);
-    msg := "HELLO WORLD";
 
     print("Server started...\n");
 
     while true {
         event: enet.Event;
-        while enet.host_service(host, *event, 2) == .SUCCESS {
+        while enet.host_service(host, *event, WAIT_FOR_PACKETS_MS) == .SUCCESS {
+            sender_address := ifx event.peer != null then address_to_string(event.peer.address) else copy_string("UNKNOWN");
+            defer free(sender_address);
+
             if event.type == {
                 case .CONNECT;
-                    print("A client has connected!\n");
+                    print("Connected client % on connection %\n", sender_address, event.peer.connect_id);
+
                 case .RECEIVE;
-                    msg: string;
-                    msg.count = event.packet.data_length;
-                    msg.data = event.packet.data;
-                    print("Message of length % received: \"%\"\n", event.packet.data_length, msg); 
+                    msg: string = .{event.packet.data_length, event.packet.data};
+                    print("Server recieved message \"%\" on connection %\n", msg, event.peer.connect_id);
                     enet.packet_destroy(event.packet);
-                case .DISCONNECT; #through;
+
+                case .DISCONNECT;
+                    print("Disconnected client % on connection %\n", sender_address, event.peer.connect_id);
+
                 case .DISCONNECT_TIMEOUT; 
-                    print("A client has disconnected. %\n", event.type);
+                    print("Disconnected (timeout) client % on connection %\n", sender_address, event.peer.connect_id);
+
                 case;
                     print("Received event %\n", event.type);
             }
@@ -61,18 +70,14 @@ run_server :: () {
 
         for * peer: host.peers {
             if peer.state == .CONNECTED {
+                msg := sprint("This is connection %", peer.connect_id);
+                defer free(msg);
                 packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
                 enet.peer_send(peer, 0, packet);
             }
         }
-
-        sleep_milliseconds(16);
     }
 }
-
-
-SERVER_ADDRESS :: "127.0.0.1";
-SERVER_PORT :: 1234;
 
 run_client :: () {
     log("Running as CLIENT");
@@ -88,28 +93,32 @@ run_client :: () {
     address.port = SERVER_PORT;
 
     print("Connecting to server %:%\n", SERVER_ADDRESS, SERVER_PORT);
-    peer := enet.host_connect(client, *address, 1, 5); 
+    server := enet.host_connect(client, *address, 1, 5);
 
-    msg := "HELLO WORLD 1 2 3 4 ";
+    disconnect_countdown := 10;
+
     connected := false;
 
-    while true {
+    while running := true {
         event: enet.Event;
-        while enet.host_service(client, *event, 2) == .SUCCESS {
+        while enet.host_service(client, *event, WAIT_FOR_PACKETS_MS) == .SUCCESS {
             if event.type == {
                 case .CONNECT;
-                    print("Connected to server.\n");
+                    print("Connected to server via connection %\n", event.peer.connect_id);
                     connected = true;
+
                 case .RECEIVE;
-                    msg: string;
-                    msg.count = event.packet.data_length;
-                    msg.data  = event.packet.data;
-                    print("Message of length % received: \"%\"\n", event.packet.data_length, msg); 
+                    msg: string = .{event.packet.data_length, event.packet.data};
+                    print("Client recieved message \"%\" on connection %\n", msg, event.peer.connect_id);
                     enet.packet_destroy(event.packet);
-                case .DISCONNECT; #through;
+
+                case .DISCONNECT;
+                    print("Connection % disconnected\n", event.peer.connect_id);
+                    break running;
+
                 case .DISCONNECT_TIMEOUT;
-                    print("Disconnected: %\n", event.type);
-                    exit(0);
+                    print("Connection % disconnected (timeout)\n", event.peer.connect_id);
+                    break running;
 
                 case;
                     print("Received event %\n", event.type);
@@ -117,10 +126,24 @@ run_client :: () {
         }
 
         if connected {
-            packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
-            enet.peer_send(peer, 0, packet);
+            if disconnect_countdown > 0 {
+                msg := sprint("Client on connection % will disconnect in %", server.connect_id, disconnect_countdown);
+                defer free(msg);
+                packet := enet.packet_create(msg.data, msg.count, .RELIABLE);
+                enet.peer_send(server, 0, packet);
+            } else {
+                enet.peer_disconnect(server, 0);
+            }
+            disconnect_countdown -= 1;
         }
-        sleep_milliseconds(16);
     }
 }
 
+address_to_string :: (address : enet.Address) -> string {
+    Socket :: #import "Socket";
+    addr : Socket.sockaddr_in6;
+    addr.sin6_port = address.port;
+    addr.sin6_addr = address.host;
+    addr.sin6_scope_id = address.sin6_scope_id;
+    return Socket.to_string(addr);
+}

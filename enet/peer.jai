@@ -269,36 +269,33 @@ peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max:
 peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 
-    host := peer.host;
-    incoming_peer_id := peer.incoming_peer_id;
+    // Hold onto the following data so they can be used when the disconnect event is sent
+    peer.* = Peer.{
+        connect_id       = peer.connect_id,
+        address          = peer.address,
+        host             = peer.host,
+        mtu              = peer.host.mtu,
+        data             = peer.data,
+        incoming_peer_id = peer.incoming_peer_id
+    };
 
-    // Hold onto peer.data pointer so that when the disconnect event is
-    // sent, the program can use it.
-    peer_data := peer.data;
-
-    peer.* = Peer.{};
-    peer.data = peer_data;
-    peer.host = host;
-    peer.incoming_peer_id = incoming_peer_id;
-    peer.outgoing_session_id = 0xFF;
-    peer.incoming_session_id = 0xFF;
-
-    peer.outgoing_peer_id = PROTOCOL_MAX_PEER_ID;
-    peer.state = .DISCONNECTED;
-    peer.timeout_limit = PEER_TIMEOUT_LIMIT;
-    peer.timeout_minimum        = PEER_TIMEOUT_MINIMUM;
-    peer.timeout_maximum        = PEER_TIMEOUT_MAXIMUM;
-    peer.last_round_trip_time   = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.lowest_round_trip_time = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.round_trip_time        = PEER_DEFAULT_ROUND_TRIP_TIME;
-    peer.ping_interval          = PEER_PING_INTERVAL;
-    peer.mtu                    = host.mtu;
-    peer.packet_throttle        = PEER_DEFAULT_PACKET_THROTTLE;
-    peer.packet_throttle_limit  = PEER_PACKET_THROTTLE_SCALE;
+    peer.state                        = .DISCONNECTED;
+    peer.outgoing_session_id          = 0xFF;
+    peer.incoming_session_id          = 0xFF;
+    peer.outgoing_peer_id             = PROTOCOL_MAX_PEER_ID;
+    peer.timeout_limit                = PEER_TIMEOUT_LIMIT;
+    peer.timeout_minimum              = PEER_TIMEOUT_MINIMUM;
+    peer.timeout_maximum              = PEER_TIMEOUT_MAXIMUM;
+    peer.last_round_trip_time         = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.lowest_round_trip_time       = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.round_trip_time              = PEER_DEFAULT_ROUND_TRIP_TIME;
+    peer.ping_interval                = PEER_PING_INTERVAL;
+    peer.packet_throttle              = PEER_DEFAULT_PACKET_THROTTLE;
+    peer.packet_throttle_limit        = PEER_PACKET_THROTTLE_SCALE;
     peer.packet_throttle_acceleration = PEER_PACKET_THROTTLE_ACCELERATION;
     peer.packet_throttle_deceleration = PEER_PACKET_THROTTLE_DECELERATION;
-    peer.packet_throttle_interval = PEER_PACKET_THROTTLE_INTERVAL;
-    peer.window_size            = PROTOCOL_MAX_WINDOW_SIZE;
+    peer.packet_throttle_interval     = PEER_PACKET_THROTTLE_INTERVAL;
+    peer.window_size                  = PROTOCOL_MAX_WINDOW_SIZE;
 
     list_clear(*peer.outgoing_reliable_commands);
     list_clear(*peer.outgoing_unreliable_commands);

@@ -217,9 +217,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS;
                     `return .SUCCESS;
                 case .ERROR;
-                    #if DEBUG_PRINT {
-                        log_error("Error sending outgoing packets\n");
-                    }
+                    log_error("Error sending outgoing packets");
                     `return .ERROR;
             }
         }
@@ -231,9 +229,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
             case .SUCCESS; 
                 return .SUCCESS;
             case .ERROR;
-                #if DEBUG_PRINT {
-                    log_error("Error receiving incoming packets\n");
-                }
+                log_error("Error receiving incoming packets");
                 return .ERROR;
         }
 
@@ -245,9 +241,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS; 
                     return .SUCCESS;
                 case .ERROR;
-                    #if DEBUG_PRINT {
-                        log_error("Error dispatching incoming commands\n");
-                    }
+                    log_error("Error dispatching incoming commands");
                     return .ERROR;
             }
         }

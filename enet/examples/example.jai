@@ -15,7 +15,7 @@ main :: () {
     }
 
     if !enet.initialize() {
-        print("Failed to initialize enet\n");
+        log_error("Failed to initialize enet");
         return;
     }
     defer enet.deinitialize();
@@ -35,12 +35,12 @@ run_server :: () {
 
     host, success := enet.host_create(*address, MAX_CLIENTS, 10, 0, 0);
     if !success {
-        print("Failed to create server\n");
+        log_error("Failed to create server");
         return;
     }
     defer enet.host_destroy(host);
 
-    print("Server started...\n");
+    log("Server started...");
 
     while true {
         event: enet.Event;
@@ -50,21 +50,21 @@ run_server :: () {
 
             if event.type == {
                 case .CONNECT;
-                    print("Connected client % on connection %\n", sender_address, event.peer.connect_id);
+                    log("Connected client % on connection %", sender_address, event.peer.connect_id);
 
                 case .RECEIVE;
                     msg: string = .{event.packet.data_length, event.packet.data};
-                    print("Server recieved message \"%\" on connection %\n", msg, event.peer.connect_id);
+                    log("Server recieved message \"%\" on connection %", msg, event.peer.connect_id);
                     enet.packet_destroy(event.packet);
 
                 case .DISCONNECT;
-                    print("Disconnected client % on connection %\n", sender_address, event.peer.connect_id);
+                    log("Disconnected client % on connection %", sender_address, event.peer.connect_id);
 
-                case .DISCONNECT_TIMEOUT; 
-                    print("Disconnected (timeout) client % on connection %\n", sender_address, event.peer.connect_id);
+                case .DISCONNECT_TIMEOUT;
+                    log("Disconnected (timeout) client % on connection %", sender_address, event.peer.connect_id);
 
                 case;
-                    print("Received event %\n", event.type);
+                    log("Received event %", event.type);
             }
         }
 
@@ -83,8 +83,8 @@ run_client :: () {
     log("Running as CLIENT");
 
     client, success := enet.host_create(null, 1, 10, 0, 0);
-    if !success { 
-        print("Failed to create client\n");
+    if !success {
+        log_error("Failed to create client");
         return;
     }
     defer enet.host_destroy(client);
@@ -92,7 +92,7 @@ run_client :: () {
     address := enet.get_host_ip_address(SERVER_ADDRESS);
     address.port = SERVER_PORT;
 
-    print("Connecting to server %:%\n", SERVER_ADDRESS, SERVER_PORT);
+    log("Connecting to server %:%", SERVER_ADDRESS, SERVER_PORT);
     server := enet.host_connect(client, *address, 1, 5);
 
     disconnect_countdown := 10;
@@ -104,24 +104,24 @@ run_client :: () {
         while enet.host_service(client, *event, WAIT_FOR_PACKETS_MS) == .SUCCESS {
             if event.type == {
                 case .CONNECT;
-                    print("Connected to server via connection %\n", event.peer.connect_id);
+                    log("Connected to server via connection %", event.peer.connect_id);
                     connected = true;
 
                 case .RECEIVE;
                     msg: string = .{event.packet.data_length, event.packet.data};
-                    print("Client recieved message \"%\" on connection %\n", msg, event.peer.connect_id);
+                    log("Client recieved message \"%\" on connection %", msg, event.peer.connect_id);
                     enet.packet_destroy(event.packet);
 
                 case .DISCONNECT;
-                    print("Connection % disconnected\n", event.peer.connect_id);
+                    log("Connection % disconnected", event.peer.connect_id);
                     break running;
 
                 case .DISCONNECT_TIMEOUT;
-                    print("Connection % disconnected (timeout)\n", event.peer.connect_id);
+                    log("Connection % disconnected (timeout)", event.peer.connect_id);
                     break running;
 
                 case;
-                    print("Received event %\n", event.type);
+                    log("Received event %", event.type);
             }
         }
 

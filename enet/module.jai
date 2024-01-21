@@ -1,4 +1,4 @@
-#module_parameters(DEBUG_FRAME_CAPTURE:=false, DEBUG_PRINT:=false);
+#module_parameters(DEBUG_FRAME_CAPTURE:=false);
 
 HOST_ANY :: V6_ANY_ADDR;
 
@@ -46,12 +46,12 @@ initialize :: () -> bool {
         wsa_data : WSAData;
 
         if WSAStartup(version, *wsa_data) {
-            log_error("Failed to initialize enet: Failed to startup WSA\n");
+            log_error("Failed to initialize enet: Failed to startup WSA");
             return false;
         }
 
         if wsa_data.wVersion & 1 != 1 || wsa_data.wVersion >> 8 != 1 {
-            log_error("Failed to initialize enet: Requested WSA version is % but got %\n", version, wsa_data.wVersion);
+            log_error("Failed to initialize enet: Requested WSA version is % but got %", version, wsa_data.wVersion);
             WSACleanup();
             return false;
         }

@@ -216,9 +216,7 @@ socket_receive :: (socket: Socket, address: *Address, buffers: []Buffer, buffer_
                     return -2;
             }
 
-            #if DEBUG_PRINT {
-                log("Socket error from recvfrom %\n", error_no);
-            }
+            log_error("Socket error from recvfrom %", error_no);
             return -1, error_no;
         }
 

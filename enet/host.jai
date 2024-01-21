@@ -61,7 +61,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
         log_error("Failed to create and bind socket: %\n", WSAGetLastError());
 
         socket_destroy(host.socket);
-        array_free(host.peers);
+        array_reset(*host.peers);
         free(host);
 
         return host, false;
@@ -120,9 +120,9 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
 host_destroy :: (host: *Host) {
     socket_destroy(host.socket);
     for peer: host.peers  {
-        array_free(peer.channels);
+        array_reset(*peer.channels);
     }
-    array_free(host.peers);
+    array_reset(*host.peers);
     free(host);
 }
 

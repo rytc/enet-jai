@@ -329,7 +329,7 @@ peer_reset_queues :: (peer: *Peer) {
             peer_reset_incoming_commands(*channel.incoming_unreliable_commands);
         }
 
-        array_free(peer.channels);
+        array_reset(*peer.channels);
     }
 }
 
@@ -406,7 +406,7 @@ peer_receive :: (peer: *Peer, channel_id: *u8) -> *Packet {
     packet.ref_count -= 1;
 
     if incoming_cmd.fragments {
-        array_free(incoming_cmd.fragments);
+        array_reset(*incoming_cmd.fragments);
     }
 
     free(incoming_cmd);
@@ -788,7 +788,7 @@ peer_remove_incoming_commands :: (list: *List, start_cmd: *List_Node, end_cmd: *
             if incoming_cmd.packet.ref_count == 0 then packet_destroy(incoming_cmd.packet);
         }
 
-        if incoming_cmd.fragments.count > 0 then array_free(incoming_cmd.fragments);
+        if incoming_cmd.fragments.count > 0 then array_reset(*incoming_cmd.fragments);
 
         free(incoming_cmd);
     }

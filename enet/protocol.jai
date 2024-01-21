@@ -759,7 +759,7 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
     protocol_remove_sent_reliable_command(peer, 1, 0xFF);
 
     if channel_count < peer.channels.count {
-        array_free(peer.channels);
+        array_reset(*peer.channels);
         peer.channels = NewArray(channel_count, Channel);
 
         for * channel: peer.channels channel_reset(channel);

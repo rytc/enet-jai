@@ -269,19 +269,22 @@ peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max:
 peer_reset :: (peer: *Peer) {
     peer_on_disconnect(peer);
 
-    // Hold onto the following data so they can be used when the disconnect event is sent
+    // Hold onto the following data e.g., so they can be used when the disconnect event is sent
     peer.* = Peer.{
-        connect_id       = peer.connect_id,
-        address          = peer.address,
-        host             = peer.host,
-        mtu              = peer.host.mtu,
-        data             = peer.data,
-        incoming_peer_id = peer.incoming_peer_id
+        connect_id          = peer.connect_id,
+        address             = peer.address,
+        host                = peer.host,
+        mtu                 = peer.host.mtu,
+        data                = peer.data,
+        incoming_peer_id    = peer.incoming_peer_id,
+        outgoing_session_id = peer.outgoing_session_id,
+        incoming_session_id = peer.incoming_session_id,
+        // These are used in peer_reset_queues below
+        channels            = peer.channels,
+        needs_dispatch      = peer.needs_dispatch
     };
 
     peer.state                        = .DISCONNECTED;
-    peer.outgoing_session_id          = 0xFF;
-    peer.incoming_session_id          = 0xFF;
     peer.outgoing_peer_id             = PROTOCOL_MAX_PEER_ID;
     peer.timeout_limit                = PEER_TIMEOUT_LIMIT;
     peer.timeout_minimum              = PEER_TIMEOUT_MINIMUM;

@@ -272,20 +272,20 @@ map_ip4_to_ip6 :: (addr: in_addr) -> in6_addr {
     result: in6_addr;
     result.u.Byte[10] = 0xFF;
     result.u.Byte[11] = 0xFF;
-    result.u.Byte[12] = (cast(*u8)*addr.S_un.S_addr)[0];
-    result.u.Byte[13] = (cast(*u8)*addr.S_un.S_addr)[1];
-    result.u.Byte[14] = (cast(*u8)*addr.S_un.S_addr)[2];
-    result.u.Byte[15] = (cast(*u8)*addr.S_un.S_addr)[3];
+    result.u.Byte[12] = addr.S_un.S_un_b.s_b1;
+    result.u.Byte[13] = addr.S_un.S_un_b.s_b2;
+    result.u.Byte[14] = addr.S_un.S_un_b.s_b3;
+    result.u.Byte[15] = addr.S_un.S_un_b.s_b4;
 
     return result;
 }
 
-map_ip4_to_ip6 :: (addr: in6_addr) -> in_addr {
+map_ip6_to_ip4 :: (addr: in6_addr) -> in_addr {
     result: in_addr;
-    result.S_addr[0] = (cast(*u8)*addr.S_addr)[0];
-    result.S_addr[1] = (cast(*u8)*addr.S_addr)[1];
-    result.S_addr[2] = (cast(*u8)*addr.S_addr)[2];
-    result.S_addr[3] = (cast(*u8)*addr.S_addr)[3];
+    result.S_un.S_un_b.s_b1 = addr.u.Byte[12];
+    result.S_un.S_un_b.s_b2 = addr.u.Byte[13];
+    result.S_un.S_un_b.s_b3 = addr.u.Byte[14];
+    result.S_un.S_un_b.s_b4 = addr.u.Byte[15];
 
     return result;
 }

@@ -239,7 +239,7 @@ peer_disconnect_later :: (peer: *Peer, data: u32) {
     if peer.state == .CONNECTED || peer.state == .DISCONNECT_LATER &&
        (!list_empty(*peer.outgoing_reliable_commands) &&
         list_empty(*peer.outgoing_unreliable_commands) &&
-        list_empty(peer.sent_reliable_commands)) {
+        list_empty(*peer.sent_reliable_commands)) {
 
         peer.state = .DISCONNECT_LATER;
         peer.event_data = data;
@@ -260,7 +260,7 @@ peer_ping :: (peer: *Peer) {
 }
 
 peer_ping_interval :: (peer: *Peer, interval: u32) {
-    peer.ping_interval = ifx ping_interval then ping_interval else PEER_PING_INTERVAL;
+    peer.ping_interval = ifx interval then interval else PEER_PING_INTERVAL;
 }
 
 peer_timeout :: (peer: *Peer, timeout_limit: u32, timeout_min: u32, timeout_max: u32) {

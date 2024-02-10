@@ -275,7 +275,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
 host_send_raw :: (host: *Host, address: *Address, data: []u8) {
     buffer: [1]Buffer;
     buffer[0].data = data.data;
-    buffer[0].length = data.count;
+    buffer[0].length = xx data.count;
     socket_send(host.socket, address, buffer, 1);
 }
 
@@ -305,9 +305,9 @@ host_bandwidth_limit :: (host: *Host, incoming_bandwidth: int, outgoing_bandwidt
 }
 
 host_channel_limit :: (host: *Host, channel_limit: int) {
-    if channel_limt == 0 || channel_limit > PROTOCOL_MAX_CHANNEL_COUNT then channel_limit = PROTOCOL_MAX_CHANNEL_COUNT;
+    if channel_limit == 0 || channel_limit > PROTOCOL_MAX_CHANNEL_COUNT then channel_limit = PROTOCOL_MAX_CHANNEL_COUNT;
 
-    host.channel_limit = channel_limit;
+    host.channel_limit = cast(u32)channel_limit;
 }
 
 host_broadcast :: (host: *Host, channel_id: u8, packet: *Packet) {

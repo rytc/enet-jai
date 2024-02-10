@@ -226,7 +226,7 @@ peer_disconnect_now :: (peer: *Peer, data: u32) {
         command : Protocol;
         command.header.command = Protocol_Command.DISCONNECT | .FLAG_UNSEQUENCED;
         command.header.channel_id = 0xFF;
-        command.disconnect.data = host_to_net_32(data);
+        command.disconnect.data = host_to_net_endian_32(data);
     }
 
     peer_reset(peer);

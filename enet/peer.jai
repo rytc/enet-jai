@@ -228,8 +228,8 @@ peer_disconnect_now :: (peer: *Peer, data: u32) {
         command.header.channel_id = 0xFF;
         command.disconnect.data = host_to_net_endian_32(data);
         
-        enet_peer_queue_outgoing_command(peer, *command, null, 0, 0);
-        enet_host_flush(peer.host);
+        peer_queue_outgoing_command(peer, *command, null, 0, 0);
+        host_flush(peer.host);
     }
 
     peer_reset(peer);

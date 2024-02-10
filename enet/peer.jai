@@ -280,8 +280,8 @@ peer_reset :: (peer: *Peer) {
         mtu                 = peer.host.mtu,
         data                = peer.data,
         incoming_peer_id    = peer.incoming_peer_id,
-        outgoing_session_id = peer.outgoing_session_id,
-        incoming_session_id = peer.incoming_session_id,
+        outgoing_session_id = 0xFF,
+        incoming_session_id = 0xFF,
         // These are used in peer_reset_queues below
         channels            = peer.channels,
         needs_dispatch      = peer.needs_dispatch

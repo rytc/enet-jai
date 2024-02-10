@@ -195,7 +195,7 @@ peer_disconnect :: (peer: *Peer, data: u32) {
 
     peer_reset_queues(peer);
     
-    command : Protocol;
+    command: Protocol;
     command.header.command = .DISCONNECT;
     command.header.channel_id = 0xFF;
     command.disconnect.data = host_to_net_endian_32(data);
@@ -223,10 +223,13 @@ peer_disconnect_now :: (peer: *Peer, data: u32) {
     if peer.state != .ZOMBIE || peer.state != .DISCONNECTING {
         peer_reset_queues(peer);
 
-        command : Protocol;
+        command: Protocol;
         command.header.command = Protocol_Command.DISCONNECT | .FLAG_UNSEQUENCED;
         command.header.channel_id = 0xFF;
         command.disconnect.data = host_to_net_endian_32(data);
+        
+        enet_peer_queue_outgoing_command(peer, *command, null, 0, 0);
+        enet_host_flush(peer.host);
     }
 
     peer_reset(peer);

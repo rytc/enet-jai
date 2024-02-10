@@ -246,13 +246,14 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 packet_loss := peer.packets_lost * PEER_PACKET_LOSS_SCALE / peer.packets_sent; 
                 peer.packet_loss_variance -= peer.packet_loss_variance / 4;
 
-                #if DEBUG_PRINT {
+                if context.log_level >= .VERBOSE {
                     log("Peer % packets lost: % packet loss: % packet loss adjusted: % variance: %\n",
                         peer.incoming_peer_id,
                         peer.packets_lost,
                         packet_loss,
                         peer.packet_loss,
-                        peer.packet_loss_variance);
+                        peer.packet_loss_variance,
+                        flags=.VERBOSE_ONLY);
                 }
 
                 if packet_loss >= peer.packet_loss {
@@ -332,9 +333,7 @@ protocol_receive_incoming_commands :: (host: *Host, event: *Event) -> Result_Sta
             continue;
         }
         if received_length < 0 {
-            #if DEBUG_PRINT {
-                log_error("Socket error trying to receive packets: %\n, socket_error\n", socket_error);
-            }
+            log_error("Socket error trying to receive packets: %", socket_error);
             return .ERROR;
         }
         if received_length == 0 {
@@ -475,7 +474,7 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
             (outgoing_cmd.round_trip_timeout >= outgoing_cmd.round_trip_timeout_limit &&
             peer_timeout_time >= peer.timeout_minimum)) {
 
-            #if DEBUG_PRINT {
+            if context.log_level >= .VERBOSE {
                 log("Peer %: service_time: % peer timeout time: % (min: % max: %) round trip timeout: % / %\n", 
                     peer.incoming_peer_id,
                     host.service_time,
@@ -483,7 +482,8 @@ protocol_check_timeouts :: (host: *Host, peer: *Peer, event: *Event) -> bool {
                     peer.timeout_minimum,
                     peer.timeout_maximum,
                     outgoing_cmd.round_trip_timeout,
-                    outgoing_cmd.round_trip_timeout_limit);
+                    outgoing_cmd.round_trip_timeout_limit,
+                    flags=.VERBOSE_ONLY);
             }
 
             protocol_notify_disconnect_timeout(host, peer, event);
@@ -759,7 +759,7 @@ protocol_handle_verify_connect :: (host: *Host, event: *Event, peer: *Peer, comm
     protocol_remove_sent_reliable_command(peer, 1, 0xFF);
 
     if channel_count < peer.channels.count {
-        array_free(peer.channels);
+        array_reset(*peer.channels);
         peer.channels = NewArray(channel_count, Channel);
 
         for * channel: peer.channels channel_reset(channel);
@@ -897,7 +897,7 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
     // @TODO :compression support
     // if flags & PROTOCOL_FLAG_COMPRESSED {
-    //     log_error("enet: compression is not yet supported\n");
+    //     log_error("enet: compression is not yet supported");
     // }
 
     // @TODO :checksum support

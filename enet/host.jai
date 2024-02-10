@@ -61,7 +61,7 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
         log_error("Failed to create and bind socket: %\n", WSAGetLastError());
 
         socket_destroy(host.socket);
-        array_free(host.peers);
+        array_reset(*host.peers);
         free(host);
 
         return host, false;
@@ -120,9 +120,9 @@ host_create :: (address: *Address, peer_count: int, channel_limit: int, incoming
 host_destroy :: (host: *Host) {
     socket_destroy(host.socket);
     for peer: host.peers  {
-        array_free(peer.channels);
+        array_reset(*peer.channels);
     }
-    array_free(host.peers);
+    array_reset(*host.peers);
     free(host);
 }
 
@@ -217,9 +217,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS;
                     `return .SUCCESS;
                 case .ERROR;
-                    #if DEBUG_PRINT {
-                        log_error("Error sending outgoing packets\n");
-                    }
+                    log_error("Error sending outgoing packets");
                     `return .ERROR;
             }
         }
@@ -231,9 +229,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
             case .SUCCESS; 
                 return .SUCCESS;
             case .ERROR;
-                #if DEBUG_PRINT {
-                    log_error("Error receiving incoming packets\n");
-                }
+                log_error("Error receiving incoming packets");
                 return .ERROR;
         }
 
@@ -245,9 +241,7 @@ host_service :: (host: *Host, event: *Event, timeout: s64) -> Result_Status {
                 case .SUCCESS; 
                     return .SUCCESS;
                 case .ERROR;
-                    #if DEBUG_PRINT {
-                        log_error("Error dispatching incoming commands\n");
-                    }
+                    log_error("Error dispatching incoming commands");
                     return .ERROR;
             }
         }

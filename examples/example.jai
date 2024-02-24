@@ -4,7 +4,7 @@ enet :: #import,file "../enet.jai";
 
 SERVER_ADDRESS :: "127.0.0.1";
 SERVER_PORT :: 1234;
-WAIT_FOR_PACKETS_MS :: 0;
+WAIT_FOR_PACKETS_MS :: 16;
 MAX_CLIENTS :: 16;
 
 main :: () {

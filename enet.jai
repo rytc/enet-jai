@@ -694,8 +694,6 @@ peer_ping :: (peer: *Peer) {
     command.header.command = Protocol_Command.PING | .FLAG_ACKNOWLEDGE;
     command.header.channel_id = 0xFF;
 
-    print("Sending ping\n");
-
     peer_queue_outgoing_command(peer, *command, null, 0, 0);
 }
 
@@ -1083,7 +1081,6 @@ Protocol_Throttle_Configure :: struct {
     packet_throttle_deceleration: u32;
 }
 
-
 Protocol :: union {
     header:             Protocol_Command_Header;
     acknowledge:        Protocol_Acknowledge;
@@ -1114,8 +1111,6 @@ PROTOCOL_COMMAND_SIZES :: u32.[
     size_of(Protocol_Throttle_Configure),
     size_of(Protocol_Send_Fragment)
 ];
-
-
 
 List_Node :: struct {
     prev: *List_Node;
@@ -1710,7 +1705,14 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     } else {
         channel := *peer.channels[outgoing_cmd.command.header.channel_id];
 
-        if outgoing_cmd.fragment_offset == 0 channel.outgoing_unreliable_seq_number += 1;
+
+        if outgoing_cmd.fragment_offset == 0 {
+            if channel.outgoing_unreliable_seq_number >= U16_MAX {
+                channel.outgoing_unreliable_seq_number = 0;
+             } else {
+                channel.outgoing_unreliable_seq_number += 1;
+             }
+        }
 
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = channel.outgoing_unreliable_seq_number;
@@ -1783,7 +1785,7 @@ peer_queue_incoming_command :: (peer: *Peer, command: *Protocol, data: *void, da
         }
     }
 
-    if peer.state == .DISCONNECT_LATER do_error(true);
+   if peer.state == .DISCONNECT_LATER do_error(true);
 
     unreliable_seq_number: u32;
     reliable_seq_number:   u32;
@@ -2089,7 +2091,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                 packet_loss := peer.packets_lost * PEER_PACKET_LOSS_SCALE / peer.packets_sent; 
                 peer.packet_loss_variance -= peer.packet_loss_variance / 4;
 
-                // if context.log_level >= .VERBOSE {
+                if context.log_level >= .VERBOSE {
                     log("Peer % packets lost: % packet loss: % packet loss adjusted: % variance: %\n",
                         peer.incoming_peer_id,
                         peer.packets_lost,
@@ -2097,7 +2099,7 @@ protocol_send_outgoing_commands :: (host: *Host, event: *Event, check_for_timeou
                         peer.packet_loss,
                         peer.packet_loss_variance,
                         flags=.VERBOSE_ONLY);
-                // }
+                }
 
                 if packet_loss >= peer.packet_loss {
                     peer.packet_loss += (packet_loss - peer.packet_loss) / 8;
@@ -2730,7 +2732,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
         }
     }
 
-
     // @TODO :compression support
     // if flags & PROTOCOL_FLAG_COMPRESSED {
     //     log_error("enet: compression is not yet supported");
@@ -2820,7 +2821,6 @@ protocol_handle_incoming_commands :: (host: *Host, event: *Event) -> Result_Stat
 
     exit_proc();
 }
-
 
 protocol_handle_acknowledge :: (host: *Host, event: *Event, peer: *Peer, command: Protocol) -> Result_Status {
     if peer.state == .DISCONNECTED || peer.state == .ZOMBIE return .NONE;

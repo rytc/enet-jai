@@ -1696,6 +1696,7 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
     } else if outgoing_cmd.command.header.command & Protocol_Command.FLAG_ACKNOWLEDGE {
         channel := *peer.channels[outgoing_cmd.command.header.channel_id];
         channel.outgoing_reliable_seq_number += 1;
+        channel.outgoing_unreliable_seq_number = 0;
         outgoing_cmd.reliable_seq_number = channel.outgoing_reliable_seq_number;
         outgoing_cmd.unreliable_seq_number = 0;
     } else if outgoing_cmd.command.header.command & Protocol_Command.FLAG_UNSEQUENCED {
@@ -1704,7 +1705,6 @@ peer_setup_outgoing_command :: (peer: *Peer, outgoing_cmd: *Outgoing_Command) {
         outgoing_cmd.unreliable_seq_number = 0;
     } else {
         channel := *peer.channels[outgoing_cmd.command.header.channel_id];
-
 
         if outgoing_cmd.fragment_offset == 0 {
             if channel.outgoing_unreliable_seq_number >= U16_MAX {

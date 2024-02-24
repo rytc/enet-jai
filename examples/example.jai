@@ -1,3 +1,4 @@
+// Run "example.exe -server" to run as server, then run a second instance to connect as a client.
 enet :: #import,file "../enet.jai";
 #import "Basic";
 
@@ -126,15 +127,15 @@ run_client :: () {
         }
 
         if connected {
-            // if disconnect_countdown > 0 {
+            if disconnect_countdown > 0 {
                 msg := sprint("Client on connection % will disconnect in %", server.connect_id, disconnect_countdown);
                 defer free(msg);
                 packet := enet.packet_create(msg.data, msg.count, .UNRELIABLE_FRAGMENT);
                 enet.peer_send(server, 0, packet);
-            /* } else {
+            } else {
                 enet.peer_disconnect(server, 0);
             }
-            disconnect_countdown -= 1; */
+            disconnect_countdown -= 1;
         }
     }
 }
